@@ -1,0 +1,11 @@
+#  -*- mode: shell-script -*-
+
+[ -d /opt/unity/unitycloud-ops ] && export UNITYCLOUDOPS=/opt/unity/unitycloud-ops
+
+function health()
+{(
+    set -x
+    readlink /opt/unity/unity-collab-service/current
+    curl -qfs http://localhost/api/health | prettyjson
+    curl -qsf http://localhost/api/disk | prettyjson
+)}
