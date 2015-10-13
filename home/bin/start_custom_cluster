@@ -1,0 +1,32 @@
+#!/bin/sh
+
+if [ $# -lt 1 ]; then
+    cat <<EOF
+
+usage: $(basename "$0" .sh) <custom_environment_name> [<cluster_instance_type>]
+
+EOF
+    exit 1
+fi
+
+PATH="${PATH}:/opt/unity/unitycloud-ops/bin"
+
+envname="$1"
+ctype="${2-t2.medium}"
+
+set -x
+set -e
+
+instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-1 -p us-west-1c -t $ctype --tags gluster_volume:volume1
+instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-2 -p us-west-1c -t $ctype --tags gluster_volume:volume1
+instance-launch -e custom:${envname} -r cluster-node -n ${envname}-arbiter-1 -p us-west-1c -t t2.micro
+instance-launch -e custom:${envname} -r cluster-node -n ${envname}-client-1 -p us-west-1c -t t2.micro
+instance-launch -e custom:${envname} -r cluster-node -n ${envname}-client-2 -p us-west-1b -t t2.micro
+
+aws_ssh_config
+
+ec2_wait_for ok /^${envname}-/
+
+run-ansible -v -r collab-cluster -t ${envname}-cluster
+run-ansible -v -r collab-cluster-arbiter -t ${envname}-arbiter-1 --extra-vars gluster_volume_name=volume1
+run-ansible -v -r cluster-client -t ${envname}-client

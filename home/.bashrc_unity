@@ -2,8 +2,7 @@
 
 [ -d /opt/unity/unitycloud-ops ] && export UNITYCLOUDOPS=/opt/unity/unitycloud-ops
 
-alias restart_beanstalk='launchctl unload ~/Library/LaunchAgents/homebrew.mxcl.beanstalk.plist && '\
-'launchctl load ~/Library/LaunchAgents/homebrew.mxcl.beanstalk.plist'
+alias reset_dev='rm -rf devrepos/ db/*.sqlite3; rake db:migrate'
 
 function health()
 {(
