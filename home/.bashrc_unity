@@ -2,6 +2,11 @@
 
 [ -d /opt/unity/unitycloud-ops ] && export UNITYCLOUDOPS=/opt/unity/unitycloud-ops
 
+shopt -s nullglob # empty list if no match
+s=`echo /var/opt/unity*/*secret_token*`
+[ -f "$s" ] && . "$s"
+shopt -u nullglob
+
 alias reset_dev='rm -rf devrepos/ db/*.sqlite3; rake db:migrate'
 
 if $IAMME; then
