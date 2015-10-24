@@ -4,6 +4,14 @@
 
 alias reset_dev='rm -rf devrepos/ db/*.sqlite3; rake db:migrate'
 
+shopt -s nullglob # empty list if no match
+for d in /opt/unity/unity*; do
+    n=`basename "$d" | cut -d- -f2`
+    [ -d "${d}/current" ] && d="${d}/current"
+    (cd "$d" && s "$n")
+done
+shopt -u nullglob
+
 function health()
 {(
     set -x
