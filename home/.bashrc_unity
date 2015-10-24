@@ -4,13 +4,17 @@
 
 alias reset_dev='rm -rf devrepos/ db/*.sqlite3; rake db:migrate'
 
-shopt -s nullglob # empty list if no match
-for d in /opt/unity/unity*; do
-    n=`basename "$d" | cut -d- -f2`
-    [ -d "${d}/current" ] && d="${d}/current"
-    (cd "$d" && s "$n")
-done
-shopt -u nullglob
+if $IAMME; then
+    shopt -s nullglob # empty list if no match
+    for d in /opt/unity/unity*; do
+        n=`basename "$d" | cut -d- -f2`
+        grep -q "$n" "$SDIRS" && continue
+        [ -d "${d}/current" ] && d="${d}/current"
+        (cd "$d" && s "$n")
+    done
+    shopt -u nullglob
+    [ -f "$SDIRS" ] && chmod 644 "$SDIRS" # allow nobody and others to read bashmark entries
+fi
 
 function health()
 {(
