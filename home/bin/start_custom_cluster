@@ -17,16 +17,28 @@ ctype="${2-t2.medium}"
 set -x
 set -e
 
-instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-1 -p us-west-1c -t $ctype --tags gluster_volume:volume1
-instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-2 -p us-west-1c -t $ctype --tags gluster_volume:volume1
-instance-launch -e custom:${envname} -r cluster-node -n ${envname}-arbiter-1 -p us-west-1c -t t2.micro
-instance-launch -e custom:${envname} -r cluster-node -n ${envname}-client-1 -p us-west-1c -t t2.micro
-instance-launch -e custom:${envname} -r cluster-node -n ${envname}-client-2 -p us-west-1b -t t2.micro
+(
+    instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-1 -p us-west-1c -t $ctype --tags gluster_volume:volume1
+    instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-2 -p us-west-1c -t $ctype --tags gluster_volume:volume1
+    ec2_wait_for -i 10 ok /^${envname}-cluster/
+    run-ansible -v -r collab-cluster -t ${envname}-cluster
+) &
+
+sleep 5 # get ahead to try avoiding premature connection to the cluster by arbiter/client nodes
+
+(
+    instance-launch -e custom:${envname} -r cluster-node -n ${envname}-arbiter-1 -p us-west-1c -t t2.micro
+    ec2_wait_for -i 10 ok /^${envname}-arbiter/
+    run-ansible -v -r collab-cluster-arbiter -t ${envname}-arbiter-1 --extra-vars gluster_volume_name=volume1
+) &
+
+(
+    instance-launch -e custom:${envname} -r cluster-node -n ${envname}-client-1 -p us-west-1c -t t2.micro
+    instance-launch -e custom:${envname} -r cluster-node -n ${envname}-client-2 -p us-west-1b -t t2.micro
+    ec2_wait_for -i 10 ok /^${envname}-client/
+    run-ansible -v -r cluster-client -t ${envname}-client
+) &
+
+wait
 
 aws_ssh_config
-
-ec2_wait_for ok /^${envname}-/
-
-run-ansible -v -r collab-cluster -t ${envname}-cluster
-run-ansible -v -r collab-cluster-arbiter -t ${envname}-arbiter-1 --extra-vars gluster_volume_name=volume1
-run-ansible -v -r cluster-client -t ${envname}-client
