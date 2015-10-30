@@ -9,8 +9,9 @@ shopt -u nullglob
 
 alias reset_dev='rm -rf devrepos/ db/*.sqlite3; rake db:migrate'
 
-if $IAMME && $INTERACTIVE; then
+if $IAMME && $INTERACTIVE && ihave s; then
     shopt -s nullglob # empty list if no match
+    # FIXME: this assignes unity-collab-ui to be collab (fix to know -service or -ui)
     for d in /opt/unity/unity*; do
         n=`basename "$d" | cut -d- -f2`
         test -f "$SDIRS" && grep -q "$n" "$SDIRS" && continue
