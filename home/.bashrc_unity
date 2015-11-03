@@ -35,21 +35,21 @@ function health()
 function sshrails()
 {
     local rhost srvc
-    if [ $# -lt 2 ]; then
-        echo 'usage: sshrails <remote_host> <service> [<rails_options>...]' >&2
+    if [ $# -lt 1 ]; then
+        echo 'usage: sshrails <remote_host> [<rails_options>...]' >&2
         return 1
     fi
 
     rhost="$1"; shift
-    srvc="$1"; shift
 
     ssh -t "$rhost" bash -c ':;\
-e=`sudo get_machine_env.sh`
-t=`find /var/opt -name '${srvc}'-secret_token.$e | head -1`
+eval `ec2tags`
+r=`echo $role | sed "s/fullstack-//"`
+t=`find /var/opt -name $r-secret_token.$env | head -1`
 set -x
 sudo -u nobody -i bash -c "\
-cd /opt/unity/unity-'${srvc}'-service/current;\
+cd /opt/unity/unity-$r-service/current;\
 . $t;\
-export RAILS_ENV=$e;\
+export RAILS_ENV=$env;\
 bin/rails '"$@"'"'
 }
