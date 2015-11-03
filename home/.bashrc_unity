@@ -53,3 +53,12 @@ cd /opt/unity/unity-$r-service/current;\
 export RAILS_ENV=$env;\
 bin/rails '"$@"'"'
 }
+
+function volfor()
+{
+    if $IAMME; then
+        sudo su -c 'ls -d /mnt/repos/volume*/*/'$1
+    else
+        ls -d /mnt/repos/volume*/*/$1
+    fi
+}
