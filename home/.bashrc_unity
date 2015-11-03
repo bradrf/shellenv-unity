@@ -14,6 +14,8 @@ if $IAMME && $INTERACTIVE && ihave s; then
     # FIXME: this assignes unity-collab-ui to be collab (fix to know -service or -ui)
     for d in /opt/unity/unity*; do
         n=`basename "$d" | cut -d- -f2`
+        t=`basename "$d" | cut -d- -f3`
+        [ "$t" = 'service' ] || n="${n}${t}"
         test -f "$SDIRS" && grep -q "$n" "$SDIRS" && continue
         [ -d "${d}/current" ] && d="${d}/current"
         (cd "$d" && s "$n")
@@ -29,3 +31,25 @@ function health()
     curl -qfs http://localhost/api/health | prettyjson
     curl -qsf http://localhost/api/disk | prettyjson
 )}
+
+function sshrails()
+{
+    local rhost srvc
+    if [ $# -lt 2 ]; then
+        echo 'usage: sshrails <remote_host> <service> [<rails_options>...]' >&2
+        return 1
+    fi
+
+    rhost="$1"; shift
+    srvc="$1"; shift
+
+    ssh -t "$rhost" bash -c ':;\
+e=`sudo get_machine_env.sh`
+t=`find /var/opt -name '${srvc}'-secret_token.$e | head -1`
+set -x
+sudo -u nobody -i bash -c "\
+cd /opt/unity/unity-'${srvc}'-service/current;\
+. $t;\
+export RAILS_ENV=$e;\
+bin/rails '"$@"'"'
+}
