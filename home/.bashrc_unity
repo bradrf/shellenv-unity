@@ -44,14 +44,12 @@ function sshrails()
 
     rhost="$1"; shift
 
-    ssh -t "$rhost" bash -ic ':;\
-set | grep EC2
-set -x
-sudo -u nobody -i bash -c "\
-cd "/opt/unity/unity-${EC2_ROLE}-service/current";\
-. "$SECRET_FILE";\
-export RAILS_ENV=$EC2_ENV;\
-bin/rails '"$@"'"'
+    \ssh -t "$rhost" bash -ic "'
+sudo -u nobody -i bash -c \"\
+cd /opt/unity/unity-\${EC2_ROLE}-service/current;\
+. \$SECRET_FILE;\
+export RAILS_ENV=\$EC2_ENV;\
+bin/rails "$@"\"'"
 }
 
 function volfor()
