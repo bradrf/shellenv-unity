@@ -2,10 +2,12 @@
 
 [ -d /opt/unity/unitycloud-ops ] && export UNITYCLOUDOPS=/opt/unity/unitycloud-ops
 
-shopt -s nullglob # empty list if no match
-s=`echo /var/opt/unity*/*secret_token*`
-[ -f "$s" ] && . "$s"
-shopt -u nullglob
+EC2_ROLE="${EC2_ROLE#fullstack-}"
+
+if [ -n "$EC2_ROLE" ]; then
+    SECRET_FILE=`find /var/opt -name "${EC2_ROLE}-secret_token.${EC2_ENV}" | xargs ls -t | head -1`
+    [ -r "$SECRET_FILE" ] && . "$SECRET_FILE"
+fi
 
 alias reset_dev='rm -rf devrepos/ db/*.sqlite3; rake db:migrate'
 
@@ -42,15 +44,13 @@ function sshrails()
 
     rhost="$1"; shift
 
-    ssh -t "$rhost" bash -c ':;\
-eval `ec2tags`
-r=`echo $role | sed "s/fullstack-//"`
-t=`find /var/opt -name $r-secret_token.$env | head -1`
+    ssh -t "$rhost" bash -ic ':;\
+set | grep EC2
 set -x
 sudo -u nobody -i bash -c "\
-cd /opt/unity/unity-$r-service/current;\
-. $t;\
-export RAILS_ENV=$env;\
+cd "/opt/unity/unity-${EC2_ROLE}-service/current";\
+. "$SECRET_FILE";\
+export RAILS_ENV=$EC2_ENV;\
 bin/rails '"$@"'"'
 }
 
