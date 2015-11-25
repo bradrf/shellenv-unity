@@ -29,7 +29,8 @@ fi
 function health()
 {(
     set -x
-    readlink /opt/unity/unity-collab-service/current
+    ls -ld `readlink /opt/unity/unity-collab-service/current`
+    ps unicorn
     curl -qfs http://localhost/api/health | prettyjson
     curl -qsf http://localhost/api/disk | prettyjson
 )}
