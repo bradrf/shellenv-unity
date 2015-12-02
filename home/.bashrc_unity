@@ -61,3 +61,26 @@ function volfor()
         ls -d /mnt/repos/volume*/*/$1
     fi
 }
+
+function beanview()
+{
+    if [ $# -ne 1 ]; then
+        echo 'usage: beanstalkd_view <host>' >&2
+        return 1
+    fi
+
+    local privip
+    if [[ $1 = production-* || $1 = staging-* ]]; then
+        privip=`grep -A1 -F $1.private ~/.ssh/config | tail -1 | awk '{print $2}'`
+    else
+        privip=127.0.0.1
+    fi
+
+    local port=$(( ((RANDOM<<15)|RANDOM) % 63001 + 2000 ))
+    \ssh -L$port:$privip:11300 -o 'ExitOnForwardFailure yes' -nfN $1 || return $?
+    local sshpid=`pgrep -f ExitOnForwardFailure`
+
+    BEANSTALK_URL="beanstalk://localhost:$port/" \beanstalkd_view -F
+    kill $sshpid
+}
+complete -F _ssh beanview
