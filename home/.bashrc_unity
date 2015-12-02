@@ -9,7 +9,7 @@ if [ -n "$EC2_ROLE" ]; then
     [ -r "$SECRET_FILE" ] && . "$SECRET_FILE"
 fi
 
-alias reset_dev='rm -rf devrepos/ db/*.sqlite3; rake db:migrate'
+alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; rake db:migrate'
 
 if $IAMME && $INTERACTIVE && ihave s; then
     shopt -s nullglob # empty list if no match
@@ -30,7 +30,7 @@ function health()
 {(
     set -x
     ls -ld `readlink /opt/unity/unity-collab-service/current`
-    ps unicorn
+    myps unicorn
     curl -qfs http://localhost/api/health | prettyjson
     curl -qsf http://localhost/api/disk | prettyjson
 )}
