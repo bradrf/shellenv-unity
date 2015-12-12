@@ -1,5 +1,7 @@
 #  -*- mode: shell-script -*-
 
+[[ "$AWS_ENV" == development* ]] && awsregion us-west-1
+
 [ -d /opt/unity/unitycloud-ops ] && export UNITYCLOUDOPS=/opt/unity/unitycloud-ops
 
 EC2_ROLE="${EC2_ROLE#fullstack-}"
@@ -84,3 +86,5 @@ function beanview()
     kill $sshpid
 }
 complete -F _ssh beanview
+
+# TODO: add helper to find context for a given exception reported by dot-bot
