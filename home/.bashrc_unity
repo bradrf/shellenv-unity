@@ -37,6 +37,11 @@ function health()
     curl -qsf http://localhost/api/disk | prettyjson
 )}
 
+function whitelist()
+{
+    ruby -ryaml -e 'YAML.load_file("/var/opt/unity-collab-service/whitelist.yml")["'$RAILS_ENV'"]["collab"].each{|o|puts o}'
+}
+
 function sshrails()
 {
     local rhost srvc
