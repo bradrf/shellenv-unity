@@ -1,0 +1,30 @@
+[ui]
+username = Brad Robel-Forrest <brad@unity3d.com>
+
+[extensions]
+largefiles =
+eol =
+rebase =
+transplant =
+progress =
+purge =
+strip =
+# if available (just works with TortoiseHg on windows - hard to configure on Mac):
+mercurial_keyring =
+dynapath = ~/work/dynapath/dynapath.py
+
+[auth]
+ono.schemes = https
+ono.prefix = ono.unity3d.com
+ono.username = brad
+lono.schemes = http
+lono.prefix = 10.1.11.99
+lono.username = brad
+
+[diff]
+git = True
+
+[dynapath]
+ipprefix = 10.1.11
+pathprefix = https://ono.unity3d.com/
+pathsubst = http://10.1.11.99/
