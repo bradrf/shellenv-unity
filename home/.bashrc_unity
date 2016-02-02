@@ -7,7 +7,7 @@
 EC2_ROLE="${EC2_ROLE#fullstack-}"
 
 if [ -n "$EC2_ROLE" ]; then
-    SECRET_FILE=`find /var/opt -name "${EC2_ROLE}-secret_token.${EC2_ENV}" | xargs ls -t | head -1`
+    SECRET_FILE=`find /var/opt -name "${EC2_ROLE//-jobs}-secret_token.${EC2_ENV}" | xargs ls -t | head -1`
     [ -r "$SECRET_FILE" ] && . "$SECRET_FILE"
 fi
 
@@ -41,6 +41,9 @@ function whitelist()
 {
     ruby -ryaml -e 'YAML.load_file("/var/opt/unity-collab-service/whitelist.yml")["'$RAILS_ENV'"]["collab"].each{|o|puts o}'
 }
+
+# todo: add helper to use core service apis (can no longer ssh in w/ genesis system)
+# e.g. curl 'https://collab:${CORE_API_SECRET}@staging-core.cloud.unity3d.com/api/orgs/mathieu'
 
 function sshrails()
 {

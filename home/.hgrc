@@ -1,5 +1,7 @@
 [ui]
 username = Brad Robel-Forrest <brad@unity3d.com>
+merge = internal:merge3
+# merge = emacs
 
 [extensions]
 largefiles =
@@ -12,6 +14,9 @@ strip =
 # if available (just works with TortoiseHg on windows - hard to configure on Mac):
 mercurial_keyring =
 dynapath = ~/work/dynapath/dynapath.py
+color =
+pager =
+shelve=
 
 [auth]
 ono.schemes = https
@@ -21,8 +26,24 @@ lono.schemes = http
 lono.prefix = 10.1.11.99
 lono.username = brad
 
+# [merge-tools]
+# emacs.args = -q --eval "(ediff-merge-with-ancestor \""$local"\" \""$other"\" \""$base"\" nil \""$output"\")"
+
 [diff]
 git = True
+diff.trailingwhitespace = bold red_background
+diff.diffline = bold
+diff.extended = cyan bold
+diff.file_a = red bold
+diff.file_b = green bold
+diff.hunk = magenta
+diff.deleted = red
+diff.inserted = green
+diff.changed = white
+
+[pager]
+pager = LESS='FRX' less
+# ignore = version, help, update
 
 [dynapath]
 ipprefix = 10.1.11
