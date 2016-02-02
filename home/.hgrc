@@ -31,12 +31,14 @@ lono.username = brad
 
 [diff]
 git = True
+
+[color]
 diff.trailingwhitespace = bold red_background
 diff.diffline = bold
-diff.extended = cyan bold
+diff.extended = magenta bold
 diff.file_a = red bold
 diff.file_b = green bold
-diff.hunk = magenta
+diff.hunk = cyan
 diff.deleted = red
 diff.inserted = green
 diff.changed = white
