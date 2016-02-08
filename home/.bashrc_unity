@@ -42,8 +42,21 @@ function whitelist()
     ruby -ryaml -e 'YAML.load_file("/var/opt/unity-collab-service/whitelist.yml")["'$RAILS_ENV'"]["collab"].each{|o|puts o}'
 }
 
-# todo: add helper to use core service apis (can no longer ssh in w/ genesis system)
-# e.g. curl 'https://collab:${CORE_API_SECRET}@staging-core.cloud.unity3d.com/api/orgs/mathieu'
+function core()
+{
+    local user_fk='collab'
+    if [ "$1" = '-u' ]; then
+        shift; user_fk=$1; shift
+    fi
+    if [ $# -ne 1 ]; then
+        echo 'usage core [-u <user_fk>] <path>'
+        return 1
+    fi
+    curl -vL -u "${user_fk}:${CORE_API_SECRET}" "https://${AWS_ENV_PREFIX}core.cloud.unity3d.com$1"
+    local rc=$?
+    echo
+    return $?
+}
 
 function sshrails()
 {
