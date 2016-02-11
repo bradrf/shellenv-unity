@@ -8,7 +8,7 @@ EC2_ROLE="${EC2_ROLE#fullstack-}"
 
 if [ -n "$EC2_ROLE" ]; then
     SECRET_FILE=`find /var/opt -name "${EC2_ROLE//-jobs}-secret_token.${EC2_ENV}" | xargs ls -t | head -1`
-    [ -r "$SECRET_FILE" ] && . "$SECRET_FILE"
+    [ -f "$SECRET_FILE" ] && . "$SECRET_FILE"
 fi
 
 alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; rake db:migrate'
@@ -78,10 +78,11 @@ bin/rails "$@"\"'"
 
 function volfor()
 {
+    local pfk="$(downcase "$1")"
     if $IAMME; then
-        sudo su -c 'ls -d /mnt/repos/volume*/*/'$1
+        sudo su -c 'ls -d /mnt/repos/volume*/*/'$pfk
     else
-        ls -d /mnt/repos/volume*/*/$1
+        ls -d /mnt/repos/volume*/*/$pfk
     fi
 }
 
