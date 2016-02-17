@@ -109,4 +109,16 @@ function beanview()
 }
 complete -F _ssh beanview
 
+function invalidate_cdn()
+{
+    if [ $# -ne 1 ]; then
+        echo 'usage: invalidate_cdn <env>' >&2
+        return 1
+    fi
+
+    http -a "public-cloud-api@unity3d.com:${CDN_API_SECRET}" \
+         https://api.ccu.akamai.com/ccu/v2/queues/default \
+         'action:="invalidate"' 'objects:=["https://public-cdn.cloud.unity3d.com/config/'$1'"]'
+}
+
 # TODO: add helper to find context for a given exception reported by dot-bot
