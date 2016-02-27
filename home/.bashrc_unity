@@ -29,13 +29,11 @@ if $IAMME && $INTERACTIVE && ihave s; then
 fi
 
 function health()
-{(
-    set -x
-    ls -ld `readlink /opt/unity/unity-collab-service/current`
+{
     myps unicorn
-    curl -qfs http://localhost/api/health | prettyjson
-    curl -qsf http://localhost/api/disk | prettyjson
-)}
+    ls -ld `readlink /opt/unity/unity-collab-service/current`
+    curl -sqf -u "build:${BUILD_SERVICE_SECRET}" localhost:8080/api/health; echo
+}
 
 function whitelist()
 {
@@ -111,14 +109,25 @@ complete -F _ssh beanview
 
 function invalidate_cdn()
 {
-    if [ $# -ne 1 ]; then
-        echo 'usage: invalidate_cdn <env>' >&2
+    if [ $# -lt 1 ]; then
+        echo 'usage: invalidate_cdn <env> [<env> ...]' >&2
         return 1
     fi
 
-    http -a "public-cloud-api@unity3d.com:${CDN_API_SECRET}" \
+    local objects=()
+    while [ $# -gt 0 ]; do
+        objects+=('"https://public-cdn.cloud.unity3d.com/config/'$1'"')
+        shift
+    done
+
+    http -va "public-cloud-api@unity3d.com:${CDN_API_SECRET}" \
          https://api.ccu.akamai.com/ccu/v2/queues/default \
-         'action:="invalidate"' 'objects:=["https://public-cdn.cloud.unity3d.com/config/'$1'"]'
+         'action:="invalidate"' 'objects:=['"$(join , "${objects[@]}")"']'
 }
 
+# TODO: add helper to cp files
+# for h in `host 'production-(jobs-)?collab(-jobs)?-\d+$' | awk '{print $1 ".private"}'`; do ( scp ${h}:/opt/unity/unity-collab-service/current/log/production.log /Users/brad/work/logs/${h}-rails.log & ); done
+
 # TODO: add helper to find context for a given exception reported by dot-bot
+
+# TODO: add helper to get files from git pointers using aws s3 cp
