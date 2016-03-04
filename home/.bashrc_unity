@@ -11,7 +11,7 @@ if [ -n "$EC2_ROLE" ]; then
     [ -f "$SECRET_FILE" ] && . "$SECRET_FILE"
 fi
 
-alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; rake db:migrate'
+alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database unity_cloud_collab"; rake db:create db:migrate'
 
 if $IAMME && $INTERACTIVE && ihave s; then
     shopt -s nullglob # empty list if no match
@@ -32,7 +32,11 @@ function health()
 {
     myps unicorn
     ls -ld `readlink /opt/unity/unity-collab-service/current`
-    curl -sqf -u "build:${BUILD_SERVICE_SECRET}" localhost:8080/api/health; echo
+    local h="$(curl -sqf -u "build:${BUILD_SERVICE_SECRET}" localhost:8080/api/health)"
+    echo "$h"
+    eval `echo "$h" | sed -n 's/.*version":"\([^"]*\).*/local version=\1/p'`
+    echo -n "${version}  ->"
+    (cd /opt/unity/unity-collab-service/current; git branch -r --contains "$version")
 }
 
 function whitelist()
