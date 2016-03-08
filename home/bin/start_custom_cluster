@@ -1,22 +1,24 @@
 #!/bin/bash
 
-ctype='t2.medium'
-crole='cluster-client'
-
 function usage_exit()
 {
     cat <<EOF
 
-usage: $(basename "$0" .sh) [-t <cluster_instance_type>] [-r <client_role>] <custom_environment_name>
+usage: $(basename "$0" .sh) [-e <env>] [-r <client_role>] [-z <region_zone>] <custom_environment_name>
 
 EOF
     exit $1
 }
 
-while getopts 't:r:' opt; do
+emulation='default'
+client_role='cluster-client'
+region_zone='us-west-1b'
+
+while getopts 'e:r:z:' opt; do
     case $opt in
-        t) ctype=$OPTARG;;
-        r) crole=$OPTARG;;
+        e) emulation="$OPTARG";;
+        r) client_role="$OPTARG";;
+        z) region_zone="$OPTARG";;
         *) usage_exit 1;;
     esac
 done
@@ -27,39 +29,66 @@ shift $((OPTIND-1)) # move all remain args to first position
 PATH="${PATH}:/opt/unity/unitycloud-ops/bin"
 envname="$1"
 
+use_group=true
+case "$emulation" in
+    p*)
+        cluster_type='m4.xlarge'
+        arbiter_type='t2.small'
+        client_type='t2.medium'
+        ;;
+    s*)
+        cluster_type='m4.xlarge'
+        arbiter_type='t2.small'
+        client_type='t2.medium'
+        ;;
+    *)
+        cluster_type='t2.medium'
+        arbiter_type='t2.small'
+        client_type='t2.micro'
+        use_group=false
+        ;;
+esac
+
 set -x
 set -e
 
-# TODO: add placement group
 # TODO: catch sigint and kill children procs
 
-(
-    instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-1 -p us-west-1c \
-                    -t $ctype --tags gluster_volume:volume1 --nomonitoring
-    instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-2 -p us-west-1c \
-                    -t $ctype --tags gluster_volume:volume1 --nomonitoring
-    ec2_wait_for -i 10 ok /^${envname}-cluster/
-    run-ansible -v -r collab-cluster -t ${envname}-cluster
-) &
+if $use_group; then
+    group_name="${envname}-collab-cluster-${region_zone}"
+    if ! aws ec2 describe-placement-groups --group-names "$group_name"; then
+        aws ec2 create-placement-group --group-name "$group_name" --strategy cluster
+    fi
+    group_opt="--placement-group ${group_name}"
+fi
 
-sleep 5 # get ahead to try avoiding premature connection to the cluster by arbiter/client nodes
+# Launch and start ansible run against the cluster nodes
+instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-1 -p ${region_zone} \
+                -t $cluster_type --tags gluster_volume:volume1 --nomonitoring $group_opt
+instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-2 -p ${region_zone} \
+                -t $cluster_type --tags gluster_volume:volume1 --nomonitoring $group_opt
+ec2_wait_for -i 10 ok /^${envname}-cluster/
+run-ansible -v -r collab-cluster -t ${envname}-cluster &
+
+# Launch and setup the arbiter and clients
+instance-launch -e custom:${envname} -r cluster-node -n ${envname}-arbiter-1 -p ${region_zone} \
+                -t $arbiter_type --nomonitoring
+
+instance-launch -e custom:${envname} -r collab -n ${envname}-client-1 -p ${region_zone} \
+                -t $client_type --nomonitoring
+instance-launch -e custom:${envname} -r collab -n ${envname}-client-2 -p ${region_zone} \
+                -t $client_type --nomonitoring
+
+aws_ssh_config &
 
 (
-    instance-launch -e custom:${envname} -r cluster-node -n ${envname}-arbiter-1 -p us-west-1c \
-                    -t t2.micro --nomonitoring
     ec2_wait_for -i 10 ok /^${envname}-arbiter/
     run-ansible -v -r collab-cluster-arbiter -t ${envname}-arbiter-1 --extra-vars gluster_volume_name=volume1
 ) &
 
 (
-    instance-launch -e custom:${envname} -r collab -n ${envname}-client-1 -p us-west-1c \
-                    -t t2.micro --nomonitoring
-    instance-launch -e custom:${envname} -r collab -n ${envname}-client-2 -p us-west-1b \
-                    -t t2.micro --nomonitoring
     ec2_wait_for -i 10 ok /^${envname}-client/
-    run-ansible -v -r ${crole} -t ${envname}-client
+    run-ansible -v -r ${client_role} -t ${envname}-client
 ) &
 
 wait
-
-aws_ssh_config
