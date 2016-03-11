@@ -7,7 +7,7 @@
 EC2_ROLE="${EC2_ROLE#fullstack-}"
 
 if [ -n "$EC2_ROLE" ]; then
-    SECRET_FILE=`find /var/opt -name "${EC2_ROLE//-jobs}-secret_token.${EC2_ENV}" | xargs ls -t | head -1`
+    SECRET_FILE=`find /var/opt -name "${EC2_ROLE//-jobs}-secret_token.${EC2_ENV}" | xargs -r ls -t | head -1`
     [ -f "$SECRET_FILE" ] && . "$SECRET_FILE"
 fi
 
@@ -39,6 +39,7 @@ function health()
     (cd /opt/unity/unity-collab-service/current; git branch -r --contains "$version")
 }
 
+# FIXME: thjis is no longer valid, need to ask genesis (and should also look at memcache)
 function whitelist()
 {
     ruby -ryaml -e 'YAML.load_file("/var/opt/unity-collab-service/whitelist.yml")["'$RAILS_ENV'"]["collab"].each{|o|puts o}'

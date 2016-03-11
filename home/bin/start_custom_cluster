@@ -2,7 +2,7 @@
 
 function usage_exit()
 {
-    cat <<EOF
+    cat <<EOF >&2
 
 usage: $(basename "$0" .sh) [-e <env>] [-r <client_role>] [-z <region_zone>] <custom_environment_name>
 
