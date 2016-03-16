@@ -52,7 +52,9 @@ esac
 set -x
 set -e
 
-# TODO: catch sigint and kill children procs
+pids=()
+
+trap "{ kill -9 ${pids[@]}; exit 127; }" TERM INT
 
 if $use_group; then
     group_name="${envname}-collab-cluster-${region_zone}"
@@ -69,6 +71,7 @@ instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-2 -p 
                 -t $cluster_type --tags gluster_volume:volume1 --nomonitoring $group_opt
 ec2_wait_for -i 10 ok /^${envname}-cluster/
 run-ansible -v -r collab-cluster -t ${envname}-cluster &
+pids+=($!)
 
 # Launch and setup the arbiter and clients
 instance-launch -e custom:${envname} -r cluster-node -n ${envname}-arbiter-1 -p ${region_zone} \
@@ -80,15 +83,29 @@ instance-launch -e custom:${envname} -r collab -n ${envname}-client-2 -p ${regio
                 -t $client_type --nomonitoring
 
 aws_ssh_config &
+pids+=($!)
 
 (
     ec2_wait_for -i 10 ok /^${envname}-arbiter/
     run-ansible -v -r collab-cluster-arbiter -t ${envname}-arbiter-1 --extra-vars gluster_volume_name=volume1
 ) &
+pids+=($!)
 
 (
     ec2_wait_for -i 10 ok /^${envname}-client/
     run-ansible -v -r ${client_role} -t ${envname}-client
 ) &
+pids+=($!)
 
-wait
+final_rc=0
+set +e
+for pid in "${pids[@]}"; do
+    wait $pid
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        echo "PID ${pid} failed with return code ${rc}" >&2
+        (( final_rc++ ))
+    fi
+done
+
+exit $final_rc

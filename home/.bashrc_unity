@@ -130,6 +130,10 @@ function invalidate_cdn()
          'action:="invalidate"' 'objects:=['"$(join , "${objects[@]}")"']'
 }
 
+if ihave papertrail; then
+    alias pt-prod='pt -g "Collab Production"'
+fi
+
 # TODO: add helper to cp files
 # for h in `host 'production-(jobs-)?collab(-jobs)?-\d+$' | awk '{print $1 ".private"}'`; do ( scp ${h}:/opt/unity/unity-collab-service/current/log/production.log /Users/brad/work/logs/${h}-rails.log & ); done
 
