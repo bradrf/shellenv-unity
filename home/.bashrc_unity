@@ -12,6 +12,7 @@ if [ -n "$EC2_ROLE" ]; then
 fi
 
 alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database unity_cloud_collab"; rake db:create db:migrate'
+alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
 
 if $IAMME && $INTERACTIVE && ihave s; then
     shopt -s nullglob # empty list if no match
@@ -140,3 +141,20 @@ fi
 # TODO: add helper to find context for a given exception reported by dot-bot
 
 # TODO: add helper to get files from git pointers using aws s3 cp
+
+if [ "$(id -un)" = 'nobody' ]; then
+    function collab_exec()
+    {
+        g collab && ./bin/bundle exec "$@"
+    }
+else
+    function collab_exec()
+    {
+        sudo -u nobody bash -ic "cd '$(p collab)' && ./bin/bundle exec $(shellwords "$@")"
+    }
+fi
+
+function collab_loglevel()
+{
+    collab_exec rbtrace --ps 'unicorn worker' -e "Rails.logger.level = :$1"
+}
