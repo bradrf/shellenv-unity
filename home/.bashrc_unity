@@ -48,15 +48,21 @@ function whitelist()
 
 function core()
 {
+    local cargs
     local user_fk='collab'
+    if [ "$1" = '-v' ]; then
+        shift; cargs='-v'
+    else
+        cargs='-qsf'
+    fi
     if [ "$1" = '-u' ]; then
         shift; user_fk=$1; shift
     fi
     if [ $# -ne 1 ]; then
-        echo 'usage core [-u <user_fk>] <path>'
+        echo 'usage core [-v] [-u <user_fk>] <path>'
         return 1
     fi
-    curl -vL -u "${user_fk}:${CORE_API_SECRET}" "https://${AWS_ENV_PREFIX}core.cloud.unity3d.com$1"
+    curl $cargs -L -u "${user_fk}:${CORE_API_SECRET}" "https://${AWS_ENV_PREFIX}core.cloud.unity3d.com$1"
     local rc=$?
     echo
     return $?
