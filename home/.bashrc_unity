@@ -151,17 +151,6 @@ fi
 # TODO: add helper to cp files
 # for h in `host 'production-(jobs-)?collab(-jobs)?-\d+$' | awk '{print $1 ".private"}'`; do ( scp ${h}:/opt/unity/unity-collab-service/current/log/production.log /Users/brad/work/logs/${h}-rails.log & ); done
 
-# TODO: add helper to find context for a given exception reported by dot-bot
-
-# TODO: add helper to get files from git pointers using aws s3 cp
-
-# TODO: add helper to extract action_info body from a log (and optionally, count files)
-#       renames have toPath, add/deletes have just path
-#       grep -o 'toPath\\":\\"[^\\]*' the.log | wc -l
-#       grep -m1 -F action_info 4cdde796-fb93-49c0-9029-bb5d30903b56.log | grep -o 'path\\":\\"[^\\]*' | wc -l
-
-# TODO: add helper to git clone <project_id>
-
 if [ "$(id -un)" = 'nobody' ]; then
     function collab_exec()
     {
@@ -187,4 +176,41 @@ fi
 function collab_loglevel()
 {
     collab_exec rbtrace --ps 'unicorn worker' -e "Rails.logger.level = :$1"
+}
+
+function convert_pointers()
+{
+    if [ $# -ne 1 ]; then
+        echo 'usage: convert_pointers <directory>' >&2
+        return 1
+    fi
+
+    # convert dev-user to be dev/user for bucket
+    local prefix="s3://unitycloud-collab-store-${AWS_ENV/-${USER}//${USER}}"
+    local dir="$(cd "$1" && pwd -P)"
+    local pfk="$(basename "$dir")"
+    find "$dir" -name .git -prune -o -type f -print | while read fn; do
+        md5="$(awk '/^uc_md5/{print $2}' "$fn")"
+        if [ -z "$md5" ]; then
+            echo "No MD5 found in ${fn}" >&2
+        else
+            key="${prefix}/${pfk}/${md5}"
+            mv -v "$fn" "${fn}.pointer"
+            aws s3 cp "$key" "$fn" || mv -v "${fn}.pointer" "$fn"
+        fi
+    done
+}
+
+function unconvert_pointers()
+{
+    if [ $# -ne 1 ]; then
+        echo 'usage: convert_pointers <directory>' >&2
+        return 1
+    fi
+
+    find "$1" -name .git -prune -o -type f -name '*.pointer' -print | while read fn; do
+        dir="$(dirname "$fn")"
+        orig="${dir}/$(basename "$fn" .pointer)"
+        mv -vf "$fn" "$orig"
+    done
 }
