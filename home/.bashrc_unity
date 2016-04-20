@@ -40,10 +40,17 @@ function health()
     (cd /opt/unity/unity-collab-service/current; git branch -r --contains "$version")
 }
 
-# FIXME: thjis is no longer valid, need to ask genesis (and should also look at memcache)
-function whitelist()
+
+function whitelist_check()
 {
-    ruby -ryaml -e 'YAML.load_file("/var/opt/unity-collab-service/whitelist.yml")["'$RAILS_ENV'"]["collab"].each{|o|puts o}'
+    # TODO: _any_ access token will work, so snag the first one in memcache not expired...
+    if [ -z "$ACCESS_TOKEN" -o $# -lt 1 ]; then
+        echo 'usage: ACCESS_TOKEN=sekritz whitelist_check <org_fk> [<org_fk>...]' >&2
+        return 1
+    fi
+    local org_fks="$(join , "$@")"
+    curl -H "Authorization: Bearer $t" "localhost:5001/v1/alpha-features/api/whitelist/COLLAB/${org_fks}"
+    echo
 }
 
 function core()
@@ -148,15 +155,32 @@ fi
 
 # TODO: add helper to get files from git pointers using aws s3 cp
 
+# TODO: add helper to extract action_info body from a log (and optionally, count files)
+#       renames have toPath, add/deletes have just path
+#       grep -o 'toPath\\":\\"[^\\]*' the.log | wc -l
+#       grep -m1 -F action_info 4cdde796-fb93-49c0-9029-bb5d30903b56.log | grep -o 'path\\":\\"[^\\]*' | wc -l
+
+# TODO: add helper to git clone <project_id>
+
 if [ "$(id -un)" = 'nobody' ]; then
     function collab_exec()
     {
         g collab && ./bin/bundle exec "$@"
     }
+
+    function clone_project()
+    {
+        git clone "$(volfor $1)" /tmp/$1 && cd /tmp/$1
+    }
 else
     function collab_exec()
     {
         sudo -u nobody bash -ic "cd '$(p collab)' && ./bin/bundle exec $(shellwords "$@")"
+    }
+
+    function clone_project()
+    {
+        sudo -u nobody git clone "$(volfor $1)" /tmp/$1 && cd /tmp/$1 && sudo chown -R "$(id -un):" .
     }
 fi
 
