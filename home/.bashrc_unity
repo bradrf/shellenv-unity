@@ -173,9 +173,14 @@ else
     }
 fi
 
+function collab_rbtrace
+{
+    collab_exec rbtrace --ps 'unicorn worker' -e "$@"
+}
+
 function collab_loglevel()
 {
-    collab_exec rbtrace --ps 'unicorn worker' -e "Rails.logger.level = :$1"
+    collab_rbtrace "Rails.logger.level = :$1"
 }
 
 function convert_pointers()
