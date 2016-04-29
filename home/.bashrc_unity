@@ -219,3 +219,19 @@ function unconvert_pointers()
         mv -vf "$fn" "$orig"
     done
 }
+
+function hg_user_agent_revision()
+{
+    if [ $# -lt 1 ]; then
+        echo 'usage: hg_user_agent_revision <text_that_includes_user_agent>...' >&2
+        return 1
+    fi
+    local rev="$(grep -oE '[[:digit:]]{4,}' <<< "$*")"
+    if [ -z "$rev" ]; then
+        echo 'Unable to extract revision' >&2
+        return 2
+    fi
+    local hrev="$(printf %x "$rev")"
+    echo "Finding revision ${hrev} (${rev})..."
+    ( cd ~/work/editor && hg log -r "$(printf %x "$rev")" )
+}
