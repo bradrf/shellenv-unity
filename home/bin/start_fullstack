@@ -1,0 +1,13 @@
+#!/bin/bash
+
+itype="$1"
+shift
+
+set -e
+set -x
+
+instance-launch -e andy -r collab -n barf-fullstack -t "$itype" -p us-west-1b --nomonitoring
+
+ec2_wait_for -i 10 ok barf-fullstack
+
+run-ansible -v -r fullstack-collab -t barf-fullstack
