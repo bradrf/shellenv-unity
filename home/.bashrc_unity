@@ -16,7 +16,7 @@ alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2
 
 if $IAMME && $INTERACTIVE && ihave s; then
     shopt -s nullglob # empty list if no match
-    # FIXME: this assignes unity-collab-ui to be collab (fix to know -service or -ui)
+    # FIXME: this assigns unity-collab-ui to be collab (fix to know -service or -ui)
     for d in /opt/unity/unity*; do
         n=`basename "$d" | cut -d- -f2`
         t=`basename "$d" | cut -d- -f3`
@@ -221,7 +221,6 @@ function unconvert_pointers()
 }
 
 HG_REVISION_CACHE_FN="${HOME}/.hg_revision_cache"
-touch "$HG_REVISION_CACHE_FN"
 function hg_find_revision_log()
 {
     if [ $# -ne 1 ]; then
@@ -231,6 +230,8 @@ function hg_find_revision_log()
 
     local hrev="$1"
     local info
+
+    touch "$HG_REVISION_CACHE_FN"
 
     info="$(sed -n '/^changeset:.*:'"${hrev}"'/,/^summary/ p' "$HG_REVISION_CACHE_FN")"
     if [ -n "$info" ]; then
@@ -301,8 +302,8 @@ function report_project_versions()
         rc=$?
         if [ -z "$tag" -o $rc -ne 0 ]; then
             echo "Failed to get tag for ${ver}" >&2
-            return 1
+        else
+            echo "${upid}:${tag}:${ver}"
         fi
-        echo "${upid}:${tag}:${ver}"
     done
 }
