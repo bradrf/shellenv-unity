@@ -220,68 +220,6 @@ function unconvert_pointers()
     done
 }
 
-HG_REVISION_CACHE_FN="${HOME}/.hg_revision_cache"
-function hg_find_revision_log()
-{
-    if [ $# -ne 1 ]; then
-        echo 'usage: hg_find_revision_log <hex_revision_id>' >&2
-        return 1
-    fi
-
-    local hrev="$1"
-    local info
-
-    touch "$HG_REVISION_CACHE_FN"
-
-    info="$(sed -n '/^changeset:.*:'"${hrev}"'/,/^summary/ p' "$HG_REVISION_CACHE_FN")"
-    if [ -n "$info" ]; then
-        # echo '(cached)'
-        echo "$info"
-        return
-    fi
-
-    (
-        cd ~/work/editor
-        info="$(hg log -r "$hrev")"
-        if [ -z "$info" ]; then
-            hrev2="$(hg log -l10000 | grep -m1 "^parent: .*${hrev}" | awk -F: '{print $3}')"
-            if [ -n "$hrev2" ]; then
-                info="$(hg log -r "$hrev2")"
-            else
-                echo "Unable to find ${hrev}"
-                return 1
-            fi
-        fi
-        echo "$info" | tee -a "$HG_REVISION_CACHE_FN"
-    )
-}
-
-# TODO: make this periodically (once a day/hour?) hg pull -b 5.4/staging and /release
-#       (otherwise, ends up missing... or maybe do that when failed to find a version!)
-function hg_user_agent_revision()
-{
-    local tag=false
-    if [ "$1" = '-tag' ]; then
-        shift; tag=true
-    fi
-    if [ $# -lt 1 ]; then
-        echo 'usage: hg_user_agent_revision -tag <text_that_includes_user_agent>...' >&2
-        return 1
-    fi
-    local rev="$(grep -oE '[[:digit:]]{4,}' <<< "$*")"
-    if [ -z "$rev" ]; then
-        echo 'Unable to extract revision' >&2
-        return 2
-    fi
-    local hrev="$(printf %06x "$rev")"
-    if $tag; then
-        hg_find_revision_log "$hrev" | awk '/^tag:/{print $2}'
-    else
-        echo "Finding revision ${hrev} (${rev})..."
-        hg_find_revision_log "$hrev"
-    fi
-}
-
 function report_project_versions()
 {
     local lfn
@@ -306,4 +244,26 @@ function report_project_versions()
             echo "${upid}:${tag}:${ver}"
         fi
     done
+}
+
+function statsd_report()
+{
+    local host='internal-stats.cloud.unity3d.com'
+    if [ "$1" = '-h' ]; then
+        shift; host="$1"; shift
+    fi
+    # https://github.com/b/statsd_spec | https://github.com/etsy/statsd/blob/master/docs/metric_types.md
+    declare -A cmds
+    cmds=([count]=c [gauge]=g [time]=ms [hist]=h [meter]=m [set]=s)
+    local cmd=${cmds[$1]}
+    local keys
+    if [ $# -lt 2 -o -z "$cmd" ]; then
+        keys="$(join '|' `echo "${!cmds[@]}"`)"
+        echo "usage: stats_report [-h <host>] {${keys}} <metric> [<value>] [<sample_rate>]" >&2
+        return 1
+    fi
+    local msg="${HOSTNAME//./_}.${2}:${3:-1}|${cmd}"
+    [ -n "$4" ] && msg+="|@$4"
+    echo "$msg"
+    echo "$msg" | nc -uw0 "$host" 8125
 }
