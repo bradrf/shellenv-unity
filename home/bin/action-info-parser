@@ -11,9 +11,14 @@ usage: #{File.basename $0, '.rb'} { <log_file> | - } [<count>]
 
    Count indicates number of action_info entries to show before exiting.
 
-   For example,
+   For example, find the most recent action info for a particular project key...
 
-     > tail -r production_log.expanded | grep -F ca414de4-99d5-4e5c-8259-025760d5756b | action-info-parser -
+     > tac production_log.expanded | grep -F ca414de4-99d5-4e5c-8259-025760d5756b | action-info-parser
+
+   ...or, find the most recent commit failure for the same key...
+
+     > tac production_log.expanded | grep -F 6bfedb51-5c35-47fc-9056-0297d082d2f6 | \
+grep -E 'status=(4|5)' | ruby ~/action-info-parser -
 
 EOF
   exit 1
@@ -23,15 +28,23 @@ logf = ARGV[0] == '-' ? $stdin : File.open(ARGV[0])
 count = (ARGV[1] || 1).to_i
 
 logf.each_line do |line|
-  line.include?('action_info') or next
-  i = line.index('{"controller":') or next
+  line.include?('"action_info"') or next
+  i = line.index(' controller=') or next
   hdr = line.slice!(0, i)
-  items = JSON.load(line)
-  params = items['params']
+  other_info = ''
+  ai_str = nil
+  line.gsub(/ \w+=/) {|m| $/+m}.split($/).each do |kv|
+    if kv.start_with?(' params')
+      ai_str = kv
+    else
+      other_info << kv
+    end
+  end
+  params = eval(ai_str)
   action_info = JSON.load(params.delete('action_info'))
   data = action_info['data']
   counts = [:add_or_update,:move,:delete].inject({}){|h,s| h[s] = (data[s.to_s] || []).size; h}
-  puts '-'*100, "#{hdr} #{items}"
+  puts '-'*100, "#{hdr}#{other_info} #{params}"
   puts JSON.pretty_generate(action_info), counts
   count -= 1
   count > 0 or break
