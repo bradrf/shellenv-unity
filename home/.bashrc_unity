@@ -35,7 +35,7 @@ function health()
     echo "$h"
     eval `echo "$h" | sed -n 's/.*version":"\([^"]*\).*/local version=\1/p'`
     echo -n "${version}  ->"
-    (cd /opt/unity/unity-collab-service/current; git branch -r --contains "$version")
+    (cd /opt/unity/unity-collab-service/current; git branch -r --contains "$version"; git log -n1)
 }
 
 function whitelist_check()
@@ -264,3 +264,5 @@ function statsd_report()
     echo "$msg"
     echo "$msg" | nc -uw0 "$host" 8125
 }
+
+# TODO add send_syslog() to enable posting to papertrail (should be done in our deploy script, too)
