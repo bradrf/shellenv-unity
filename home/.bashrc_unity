@@ -8,11 +8,13 @@ EC2_ROLE="${EC2_ROLE#fullstack-}"
 
 if [ -n "$EC2_ROLE" ]; then
     SECRET_FILE=`find /var/opt -name "${EC2_ROLE//-jobs}-secret_token.${EC2_ENV}" | xargs -r ls -t | head -1`
+    [ ! -f "$SECRET_FILE" -a -f  ] && SECRET_FILE="/etc/unicorn/${EC2_ROLE}.conf"
     [ -f "$SECRET_FILE" ] && . "$SECRET_FILE"
 fi
 
 alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database unity_cloud_collab"; rake db:create db:migrate'
 alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
+alias list_editor_args='find Editor/Src -type f -name "*.cpp" -print0 | xargs -0 grep -F HasARGV'
 
 if $IAMME && $INTERACTIVE && ihave _z; then
     zf="${_Z_DATA:-${HOME}/.z}"
@@ -25,6 +27,44 @@ if $IAMME && $INTERACTIVE && ihave _z; then
         grep -q "$d" "$zf" || _z --add "$d" 2>/dev/null
     done
     shopt -u nullglob
+fi
+
+if $DARWIN; then
+    function unity_bin()
+    {
+        local dn bn
+        bn='Contents/MacOS/Unity'
+        if [ -x "$bn" ]; then
+            echo "bn"
+            return 0
+        fi
+        for dn in '.' build/MacEditor /Applications/Unity*; do
+            dn+="/Unity.app"
+            if [ -d "$dn" ]; then
+                echo "${dn}/${bn}"
+                return 0
+            fi
+        done
+        echo "Unable to locate Unity binary" >&2
+        return 1
+    }
+
+    # if last arg is a path, will open it as a project
+    function unity()
+    {
+        local last args=("$@")
+        last="${@: -1}"
+        if [ -d "$last" ]; then
+            [ ${#args[@]} -gt 0 ] && unset args[${#args[@]}-1]
+            # unity requires full paths
+            last="$(cd "$last" && pwd)"
+            # this is how to open more than one unity project
+            args+=(-projectpath "$last")
+        fi
+        local ub="$(unity_bin)"
+        echo "${ub} ${args[@]}" >&2
+        tailrun "${HOME}/Library/Logs/Unity/Editor.log" "${ub}" "${args[@]}"
+    }
 fi
 
 function health()
