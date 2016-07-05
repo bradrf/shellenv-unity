@@ -8,8 +8,8 @@ EC2_ROLE="${EC2_ROLE#fullstack-}"
 
 if [ -n "$EC2_ROLE" ]; then
     SECRET_FILE=`find /var/opt -name "${EC2_ROLE//-jobs}-secret_token.${EC2_ENV}" | xargs -r ls -t | head -1`
-    [ ! -f "$SECRET_FILE" -a -f  ] && SECRET_FILE="/etc/unicorn/${EC2_ROLE}.conf"
-    [ -f "$SECRET_FILE" ] && . "$SECRET_FILE"
+    [ ! -f "$SECRET_FILE" ] && SECRET_FILE="/etc/unicorn/${EC2_ROLE}.conf"
+    [ -f "$SECRET_FILE" ] && . "$SECRET_FILE" || unset SECRET_FILE
 fi
 
 alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database unity_cloud_collab"; rake db:create db:migrate'
