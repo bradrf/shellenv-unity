@@ -70,13 +70,15 @@ fi
 
 function health()
 {
+    local pn="/opt/unity/unity-${EC2_ROLE}-service/current"
+    [ ! -d "$pn" ] && pn="/opt/unity/unity-${EC2_ROLE}/current"
     myps unicorn
-    ls -ld `readlink /opt/unity/unity-collab-service/current`
+    ls -ld `readlink "$pn"`
     local h="$(curl -sqf -u "build:${BUILD_SERVICE_SECRET}" localhost:8080/api/health)"
     echo "$h"
     eval `echo "$h" | sed -n 's/.*version":"\([^"]*\).*/local version=\1/p'`
     echo -n "${version}  ->"
-    (cd /opt/unity/unity-collab-service/current; git branch -r --contains "$version"; git log -n1)
+    (cd "$pn"; git branch -r --contains "$version"; git log -n1)
 }
 
 function whitelist_check()
