@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -e
-
 if [ "$1" = '-i' ]; then
     shift; instance_id="$1"; shift
 else
@@ -47,7 +45,9 @@ while [ $wait_seconds -gt 0 ]; do
     if [ $conns -gt 0 ]; then
         echo "Waiting on ${conns} HTTP connections to drain..."
         sleep 5
-        (( wait_seconds-=5 )) || :
+        (( wait_seconds-=5 ))
+    else
+        break
     fi
 done
 
