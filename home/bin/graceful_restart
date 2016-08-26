@@ -57,8 +57,6 @@ fi
 
 [ $nginx_count -gt 0 ] && service nginx stop
 
-UPGRADE
-
 echo "Restarting ${service_name}"
 service "$service_name" stop
 sleep 3
