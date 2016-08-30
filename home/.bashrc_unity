@@ -54,18 +54,19 @@ if $DARWIN; then
     # if last arg is a path, will open it as a project
     function unity()
     {
-        local last args=("$@")
-        last="${@: -1}"
-        if [ -d "$last" ]; then
-            [ ${#args[@]} -gt 0 ] && unset args[${#args[@]}-1]
+        local pdir args=("$@")
+        if [[ ${#args[@]} -gt 0 && -d "${args[-1]}" ]]; then
+            pdir="${args[-1]}"
+            unset args[-1]
             # unity requires full paths
-            last="$(cd "$last" && pwd)"
+            pdir="$(cd "$pdir" && pwd)"
             # this is how to open more than one unity project
-            args+=(-projectpath "$last")
+            args+=(-projectpath "$pdir")
         fi
-        local ub="$(unity_bin)"
-        echo "${ub} ${args[@]}" >&2
-        tailrun "${HOME}/Library/Logs/Unity/Editor.log" "${ub}" "${args[@]}"
+        local ub
+        ub="$(unity_bin)"
+        echo "${ub} $(shellwords "${args[@]}") >&2"
+         tailrun -p "predate $ISO8601_FMT" "${HOME}/Library/Logs/Unity/Editor.log" "${ub}" "${args[@]}"
     }
 fi
 
@@ -307,6 +308,21 @@ function statsd_report()
     [ -n "$4" ] && msg+="|@$4"
     echo "$msg"
     echo "$msg" | nc -uw0 "$host" 8125
+}
+
+function beanstool()
+{
+    local beanbin="${HOME}/bin/beanstool"
+    if [ ! -x "$beanbin" ]; then
+        (
+            set -e
+            cd "${HOME}/bin"
+            wget https://github.com/src-d/beanstool/releases/download/v0.2.0/beanstool_v0.2.0_linux_amd64.tar.gz
+            tar zxf beanstool_v0.2.0_linux_amd64.tar.gz --strip-components=1 beanstool_v0.2.0_linux_amd64/beanstool
+            rm -f beanstool_v0.2.0_linux_amd64.tar.gz
+        )
+    fi
+    "$beanbin" "$@" --host="${BEANSTOOL_IP:=$(get_iface_ip inet eth0)}:11300"
 }
 
 # TODO add send_syslog() to enable posting to papertrail (should be done in our deploy script, too)
