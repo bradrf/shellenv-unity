@@ -1,0 +1,104 @@
+#!/bin/bash
+
+if [ "$1" = '-i' ]; then
+    shift; instance_id="$1"; shift
+else
+    instance_id="$(ec2metadata --instance-id)"
+fi
+
+if [[ $# -lt 4 || -z "$instance_id" ]]; then
+    cat <<EOF >&2
+
+usage: $(basename "$0" .sh) [-i <instance_id>] { restart | stop | start } \
+<wait_seconds> <service_name> <elb_name> [<elb_name> ...]
+
+EOF
+    exit 1
+fi
+
+if [ $(id -u) -ne 0 ]; then
+    echo 'Must be root. Perhaps run with sudo?' >&2
+    exit 2
+fi
+
+action="$1"; shift
+stopping=false
+starting=false
+case "$action" in
+    restart)
+        stopping=true
+        starting=true
+        ;;
+    stop)
+        stopping=true
+        ;;
+    start)
+        starting=true
+        ;;
+    *)
+        echo "Unknown action: ${1}" >&2
+        exit 3
+esac
+
+wait_seconds="$1"; shift
+service_name="$1"; shift
+elb_names="$*"
+
+AWS_AVAILABILTY_ZONE="$(ec2metadata --availability-zone)"
+AWS_DEFAULT_REGION="${AWS_AVAILABILTY_ZONE%?}" # strip availibility character at end
+export AWS_AVAILABILTY_ZONE AWS_DEFAULT_REGION
+
+if $stopping; then
+    for name in $elb_names; do
+        echo "Removing ${instance_id} from ${name}:"
+        aws --output text elb deregister-instances-from-load-balancer \
+            --load-balancer-name "$name" --instances "$instance_id"
+    done
+
+    nginx_count="$(pgrep -c nginx)"
+    if [ $nginx_count -gt 0 ]; then
+        echo 'Telling nginx to quit' # graceful stop for connection draining
+        nginx -s quit
+    fi
+
+    while [ $wait_seconds -gt 0 ]; do
+        conns="$(ss -o state established '( sport = :http )' | grep ^tcp | grep -cvF 127.0.0.1)"
+        if [ $conns -gt 0 ]; then
+            echo "Waiting on ${conns} HTTP connections to drain..."
+            [ $conns -lt 5 ] && \
+                ss -o state established '( sport = :http )' | grep ^tcp | grep -vF 127.0.0.1
+            sleep 5
+            (( wait_seconds-=5 ))
+        else
+            break
+        fi
+    done
+
+    if [ $wait_seconds -lt 1 ]; then
+        echo "Gave up waiting on ${conns} to drain" >&2
+    fi
+
+    [ $nginx_count -gt 0 ] && service nginx stop
+
+    echo "Stopping ${service_name}"
+    service "$service_name" stop
+
+    $starting && sleep 3 # give restart a little time to stop before starting
+fi
+
+if $starting; then
+    echo "Starting ${service_name}"
+    service "$service_name" start
+
+    # service status will fail if nginx isn't installed and available
+    if service nginx status; then
+        echo 'Starting nginx'
+        service nginx start
+    fi
+
+    for name in $elb_names; do
+        echo "Adding ${instance_id} to ${name}:"
+        aws --output text elb register-instances-with-load-balancer \
+            --load-balancer-name "$name" --instances "$instance_id"
+    done
+fi

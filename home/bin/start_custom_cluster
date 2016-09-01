@@ -54,7 +54,7 @@ set -e
 
 pids=()
 
-trap "{ kill -9 ${pids[@]}; exit 127; }" TERM INT
+trap '{ kill -9 ${pids[@]}; exit 127; }' TERM INT
 
 if $use_group; then
     group_name="${envname}-collab-cluster-${region_zone}"
