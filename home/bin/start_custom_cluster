@@ -33,26 +33,47 @@ use_group=true
 case "$emulation" in
     p*)
         cluster_type='m4.xlarge'
-        arbiter_type='t2.small'
         client_type='t2.medium'
         ;;
     s*)
         cluster_type='m4.xlarge'
-        arbiter_type='t2.small'
         client_type='t2.medium'
         ;;
     *)
         cluster_type='t2.medium'
-        arbiter_type='t2.small'
         client_type='t2.micro'
         use_group=false
         ;;
 esac
 
+pids=()
+
+function add_pid()
+{
+    pids+=($1)
+    echo "Launched $1"
+}
+
+function wait_for_pids()
+{
+    set +e
+    local pid rc
+    local final_rc=0
+    for pid in "${pids[@]}"; do
+        wait $pid
+        rc=$?
+        if [ $rc -ne 0 ]; then
+            echo "PID ${pid} failed with return code ${rc}" >&2
+            (( final_rc++ ))
+        fi
+    done
+    pids=()
+    set -e
+    return $final_rc
+}
+
 set -x
 set -e
-
-pids=()
 
 trap '{ kill -9 ${pids[@]}; exit 127; }' TERM INT
 
@@ -64,48 +85,35 @@ if $use_group; then
     group_opt="--placement-group ${group_name}"
 fi
 
-# Launch and start ansible run against the cluster nodes
-instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-1 -p ${region_zone} \
-                -t $cluster_type --tags gluster_volume:volume1 --nomonitoring $group_opt
-instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-2 -p ${region_zone} \
-                -t $cluster_type --tags gluster_volume:volume1 --nomonitoring $group_opt
-ec2_wait_for -i 10 ok /^${envname}-cluster/
+count=$(saws -t instances /^${envname}-cluster-/ | wc -l)
+if [ $count -ne 2 ]; then
+   echo 'Launch and start ansible run against the cluster nodes...'
+   instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-1 -p ${region_zone} \
+                   -t $cluster_type --tags gluster_volume:volume1 --nomonitoring $group_opt
+   instance-launch -e custom:${envname} -r cluster-node -n ${envname}-cluster-2 -p ${region_zone} \
+                   -t $cluster_type --tags gluster_volume:volume1 --nomonitoring $group_opt
+fi
+ec2_wait_for -i 10 ok /^${envname}-cluster-/
 run-ansible -v -r collab-cluster -t ${envname}-cluster &
-pids+=($!)
+add_pid $!
 
-# Launch and setup the arbiter and clients
-instance-launch -e custom:${envname} -r cluster-node -n ${envname}-arbiter-1 -p ${region_zone} \
-                -t $arbiter_type --nomonitoring
+count=$(saws -t instances /^${envname}-client-/ | wc -l)
+if [ $count -ne 2 ]; then
+    echo 'Launch and setup clients...'
+    instance-launch -e custom:${envname} -r collab -n ${envname}-client-1 -p ${region_zone} \
+                    -t $client_type --nomonitoring
+    instance-launch -e custom:${envname} -r collab -n ${envname}-client-2 -p ${region_zone} \
+                    -t $client_type --nomonitoring
+fi
 
-instance-launch -e custom:${envname} -r collab -n ${envname}-client-1 -p ${region_zone} \
-                -t $client_type --nomonitoring
-instance-launch -e custom:${envname} -r collab -n ${envname}-client-2 -p ${region_zone} \
-                -t $client_type --nomonitoring
-
-aws_ssh_config &
-pids+=($!)
-
-(
-    ec2_wait_for -i 10 ok /^${envname}-arbiter/
-    run-ansible -v -r collab-cluster-arbiter -t ${envname}-arbiter-1 --extra-vars gluster_volume_name=volume1
-) &
-pids+=($!)
+echo 'Wait for cluster instances to be ready...'
+wait_for_pids || exit $?
 
 (
-    ec2_wait_for -i 10 ok /^${envname}-client/
+    ec2_wait_for -i 10 ok /^${envname}-client-/
     run-ansible -v -r ${client_role} -t ${envname}-client
 ) &
-pids+=($!)
+add_pid $!
 
-final_rc=0
-set +e
-for pid in "${pids[@]}"; do
-    wait $pid
-    rc=$?
-    if [ $rc -ne 0 ]; then
-        echo "PID ${pid} failed with return code ${rc}" >&2
-        (( final_rc++ ))
-    fi
-done
-
-exit $final_rc
+wait_for_pids
+exit $?
