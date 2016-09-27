@@ -267,7 +267,11 @@ function convert_pointers()
             key="${pfk}/${md5}"
             if ! aws s3api head-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then
                 echo "Missing ${bucket}/${key} in ${fn}" >&2
-                (( failures++ ))
+                key="collab_archive_${pfk}/${md5}"
+                if ! aws s3api head-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then
+                    echo "Also missing ${bucket}/${key} in ${fn}" >&2
+                    (( failures++ ))
+                fi
             fi
         fi
         if [ $failures -ge $max_failures ]; then
@@ -290,6 +294,46 @@ function unconvert_pointers()
         orig="${dir}/$(basename "$fn" .pointer)"
         mv -vf "$fn" "$orig"
     done
+}
+
+# moves all files found in transaction folders out into the project root
+function convert_transactions()
+{
+    if [ $# -lt 1 ]; then
+        echo 'usage: convert_transactions <project_id> [<project_id>...]' >&2
+        return 1
+    fi
+
+    echo 'TODO: make converter for old transaction folders in s3!'
+}
+
+function simplified_s3_log()
+{
+    if [ $# -lt 1 ]; then
+        echo 'usage: simplified_s3_log <log> [<log>...]' >&2
+        return 1
+    fi
+    # TODO: figure out a way to get user agent string between quotes...
+    cat "$@" | \
+        awk '$9 ~ /\//{gsub("/"," ",$9); split($8,a,"."); print $3 $4 " " $5 " " a[2] " " $9 " " $13}'
+}
+
+function split_s3_key_from_log()
+{
+    if [ $# -lt 1 ]; then
+        echo 'usage: split_s3_key_from_log <log> [<log>...]' >&2
+        return 1
+    fi
+    cat "$@" | awk '$9 ~ /\//{gsub("/"," ",$9);a[$9]++} END{for (n in a) print n}'
+}
+
+function get_project_ids_from_s3_log()
+{
+    if [ $# -lt 1 ]; then
+        echo 'usage: get_project_ids_from_s3_logs <log> [<log>...]' >&2
+        return 1
+    fi
+    split_s3_key_from_log "$@" | awk '{print $1}' | sort | uniq -c | sort -n
 }
 
 function report_project_versions()
