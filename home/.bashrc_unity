@@ -244,7 +244,6 @@ function convert_pointers()
 
     # convert dev-user to be dev/user for bucket
     local bucket="unitycloud-collab-store-${AWS_ENV/-${USER}//${USER}}"
-    local prefix="s3://unitycloud-collab-store-${bucket}"
     local dir="$(cd "$1" && pwd -P)"
     local pfk="$(basename "$dir")"
     local failures=0
@@ -253,22 +252,21 @@ function convert_pointers()
     local count=0
     git ls-files | while read fn; do
         (( count++ ))
-        [ $(( $count % 10 )) -eq 0 ] && echo "Processed ${count} / ${total}"
         md5="$(awk '/^uc_md5/{print $2}' "$fn")"
         if [ -z "$md5" ]; then
             echo "No MD5 found in ${fn}" >&2
             (( failures++ ))
         elif $download; then
-            key="${prefix}/${pfk}/${md5}"
             mv -v "$fn" "${fn}.pointer"
-            if ! aws s3 cp "$key" "$fn"; then
+            key="${bucket}/${pfk}/${md5}"
+            if ! aws s3 cp "s3://$key" "$fn"; then
                 mv -v "${fn}.pointer" "$fn"
                 (( failures++ ))
             fi
         else
             key="${pfk}/${md5}"
             if ! aws s3api head-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then
-                echo "Missing ${prefix}/${key} in ${fn}" >&2
+                echo "Missing ${bucket}/${key} in ${fn}" >&2
                 (( failures++ ))
             fi
         fi
@@ -276,6 +274,7 @@ function convert_pointers()
             echo "Giving up after ${failures} failures" >&2
             break
         fi
+        [ $(( $count % 10 )) -eq 0 ] && echo "Processed ${count} / ${total}"
     done
 }
 
