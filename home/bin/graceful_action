@@ -55,18 +55,12 @@ if $stopping; then
             --load-balancer-name "$name" --instances "$instance_id"
     done
 
-    nginx_count="$(pgrep -c nginx)"
-    if [ $nginx_count -gt 0 ]; then
-        echo 'Telling nginx to quit' # graceful stop for connection draining
-        nginx -s quit
-    fi
-
     while [ $wait_seconds -gt 0 ]; do
-        conns="$(ss -o state established '( sport = :http )' | grep ^tcp | grep -cvF 127.0.0.1)"
+        conns="$(ss -n -o state established '( sport = :http )' | grep ^tcp | grep -cvF 127.0.0.1)"
         if [ $conns -gt 0 ]; then
             echo "Waiting on ${conns} HTTP connections to drain..."
             [ $conns -lt 5 ] && \
-                ss -o state established '( sport = :http )' | grep ^tcp | grep -vF 127.0.0.1
+                ss -n -o state established '( sport = :http )' | grep ^tcp | grep -vF 127.0.0.1
             sleep 5
             (( wait_seconds-=5 ))
         else
@@ -78,8 +72,6 @@ if $stopping; then
         echo "Gave up waiting on ${conns} to drain" >&2
     fi
 
-    [ $nginx_count -gt 0 ] && service nginx stop
-
     echo "Stopping ${service_name}"
     service "$service_name" stop
 
@@ -89,12 +81,6 @@ fi
 if $starting; then
     echo "Starting ${service_name}"
     service "$service_name" start
-
-    # service status will fail if nginx isn't installed and available
-    if service nginx status; then
-        echo 'Starting nginx'
-        service nginx start
-    fi
 
     for name in $elb_names; do
         echo "Adding ${instance_id} to ${name}:"

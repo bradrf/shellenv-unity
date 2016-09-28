@@ -225,6 +225,7 @@ function collab_loglevel()
     collab_rbtrace "Rails.logger.level = :$1"
 }
 
+# TODO: add easy ability to convert only one file!
 function convert_pointers()
 {
     local download=false
