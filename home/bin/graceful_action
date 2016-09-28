@@ -6,11 +6,17 @@ else
     instance_id="$(ec2metadata --instance-id)"
 fi
 
+if [ "$1" = '-w' ]; then
+    shift; wait_seconds="$1"; shift
+else
+    wait_seconds=0
+fi
+
 if [[ $# -lt 4 || -z "$instance_id" ]]; then
     cat <<EOF >&2
 
-usage: $(basename "$0" .sh) [-i <instance_id>] { restart | stop | start } \
-<wait_seconds> <service_name> <elb_name> [<elb_name> ...]
+usage: $(basename "$0" .sh) [-i <instance_id>] [-w <wait_seconds>] { restart | stop | start } \
+<service_name> <elb_name> [<elb_name> ...]
 
 EOF
     exit 1
@@ -40,7 +46,6 @@ case "$action" in
         exit 3
 esac
 
-wait_seconds="$1"; shift
 service_name="$1"; shift
 elb_names="$*"
 
@@ -49,7 +54,13 @@ AWS_DEFAULT_REGION="${AWS_AVAILABILTY_ZONE%?}" # strip availibility character at
 export AWS_AVAILABILTY_ZONE AWS_DEFAULT_REGION
 
 if $stopping; then
+    q='LoadBalancerAttributes.ConnectionDraining.Timeout'
     for name in $elb_names; do
+        elb_drain=`aws elb describe-load-balancer-attributes --load-balancer-name "$name" --query $q`
+        if [ -n "$elb_drain" ] && [ $elb_drain -gt $wait_seconds ]; then
+           echo "Setting wait_seconds=${elb_drain} (${name})"
+           wait_seconds=$elb_drain
+        fi
         echo "Removing ${instance_id} from ${name}:"
         aws --output text elb deregister-instances-from-load-balancer \
             --load-balancer-name "$name" --instances "$instance_id"
@@ -59,7 +70,7 @@ if $stopping; then
         conns="$(ss -n -o state established '( sport = :http )' | grep ^tcp | grep -cvF 127.0.0.1)"
         if [ $conns -gt 0 ]; then
             echo "Waiting on ${conns} HTTP connections to drain..."
-            [ $conns -lt 5 ] && \
+            [ $conns -lt 10 ] && \
                 ss -n -o state established '( sport = :http )' | grep ^tcp | grep -vF 127.0.0.1
             sleep 5
             (( wait_seconds-=5 ))
