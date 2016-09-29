@@ -9,7 +9,7 @@ fi
 if [ "$1" = '-w' ]; then
     shift; wait_seconds="$1"; shift
 else
-    wait_seconds=0
+    wait_seconds=60
 fi
 
 if [[ $# -lt 4 || -z "$instance_id" ]]; then
@@ -49,6 +49,16 @@ esac
 service_name="$1"; shift
 elb_names="$*"
 
+function now()
+{
+    date +%s
+}
+
+function get_conns()
+{
+    ss -n -o state established '( sport = :http )' | grep ^tcp | grep "$@" -vF 127.0.0.1
+}
+
 AWS_AVAILABILTY_ZONE="$(ec2metadata --availability-zone)"
 AWS_DEFAULT_REGION="${AWS_AVAILABILTY_ZONE%?}" # strip availibility character at end
 export AWS_AVAILABILTY_ZONE AWS_DEFAULT_REGION
@@ -66,22 +76,20 @@ if $stopping; then
             --load-balancer-name "$name" --instances "$instance_id"
     done
 
-    while [ $wait_seconds -gt 0 ]; do
-        conns="$(ss -n -o state established '( sport = :http )' | grep ^tcp | grep -cvF 127.0.0.1)"
+    expiry=`now`; (( expiry+=$wait_seconds ))
+    while [ `now` -lt $expiry ]; do
+        conns=`get_conns -c`
         if [ $conns -gt 0 ]; then
             echo "Waiting on ${conns} HTTP connections to drain..."
-            [ $conns -lt 10 ] && \
-                ss -n -o state established '( sport = :http )' | grep ^tcp | grep -vF 127.0.0.1
+            [ $conns -lt 10 ] && get_conns
             sleep 5
-            (( wait_seconds-=5 ))
         else
             break
         fi
     done
 
-    if [ $wait_seconds -lt 1 ]; then
-        echo "Gave up waiting on ${conns} to drain" >&2
-    fi
+    conns=`get_conns -c`
+    [ $conns -gt 0 ] && echo "Gave up waiting on ${conns} to drain" >&2
 
     echo "Stopping ${service_name}"
     service "$service_name" stop
