@@ -1,5 +1,8 @@
 #  -*- mode: shell-script -*-
 
+# TODO: fix utail to allow args:
+# > ueach -a 'production-collab-[1-9]' -- "sudo sh -c \"tail -Fn0 /var/log/nginx/genesis-proxy.access.log\"" | pv -lra >/dev/null
+
 [[ "$AWS_ENV" == development* ]] && awsregion us-west-1
 
 [ -d /opt/unity/unitycloud-ops ] && export UNITYCLOUDOPS=/opt/unity/unitycloud-ops
@@ -66,17 +69,24 @@ if $DARWIN; then
         local ub
         ub="$(unity_bin)"
         echo "${ub} $(shellwords "${args[@]}") >&2"
-         tailrun -p "predate $ISO8601_FMT" "${HOME}/Library/Logs/Unity/Editor.log" "${ub}" "${args[@]}"
+        tailrun -p "predate $ISO8601_FMT" "${HOME}/Library/Logs/Unity/Editor.log" "${ub}" "${args[@]}"
     }
 fi
 
 function health()
 {
     local pn="/opt/unity/unity-${EC2_ROLE}-service/current"
+    local px
     [ ! -d "$pn" ] && pn="/opt/unity/unity-${EC2_ROLE}/current"
-    myps unicorn
+    if [ ! -d "$pn" ]; then
+        pn='/opt/unity/unity-collab-cache/current'
+        px='localhost/csapi/health'
+    else
+        px='localhost:8080/api/health'
+    fi
+    myps 'unicorn|collabcache'
     ls -ld `readlink "$pn"`
-    local h="$(curl -sqf -u "build:${BUILD_SERVICE_SECRET}" localhost:8080/api/health)"
+    local h="$(curl -sqf -u "build:${BUILD_SERVICE_SECRET}" ${px})"
     echo "$h"
     eval `echo "$h" | sed -n 's/.*version":"\([^"]*\).*/local version=\1/p'`
     echo -n "${version}  ->"
@@ -245,7 +255,7 @@ function convert_pointers()
 
     # convert dev-user to be dev/user for bucket
     local bucket="unitycloud-collab-store-${AWS_ENV/-${USER}//${USER}}"
-    local dir="$(cd "$1" && pwd -P)"
+    local dir="$(cd "$1" && pwd -P)"; shift
     local pfk="$(basename "$dir")"
     local failures=0
 
@@ -314,9 +324,10 @@ function simplified_s3_log()
         echo 'usage: simplified_s3_log <log> [<log>...]' >&2
         return 1
     fi
-    # TODO: figure out a way to get user agent string between quotes...
-    cat "$@" | \
-        awk '$9 ~ /\//{gsub("/"," ",$9); split($8,a,"."); print $3 $4 " " $5 " " a[2] " " $9 " " $13}'
+    cat "$@" | pipejoin $'\3' | awk -F$'\3' '$9 ~ /\// {
+sub(/\[/,"",$3); sub(/\]/,"",$4); gsub("/"," ",$9); split($8,a,".");
+print $3 $4, $5, a[2], $9, $13, $(NF-1);
+}'
 }
 
 function split_s3_key_from_log()

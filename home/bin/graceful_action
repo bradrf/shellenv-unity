@@ -89,7 +89,11 @@ if $stopping; then
     done
 
     conns=`get_conns -c`
-    [ $conns -gt 0 ] && echo "Gave up waiting on ${conns} to drain" >&2
+    if [ $conns -gt 0 ]; then
+        echo "Gave up waiting on ${conns} to drain" >&2
+    else
+        echo 'All connections drained'
+    fi
 
     echo "Stopping ${service_name}"
     service "$service_name" stop
