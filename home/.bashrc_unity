@@ -20,6 +20,7 @@ alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database
 alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
 alias list_editor_args='find Editor/Src -type f -name "*.cpp" -print0 | xargs -0 grep -F HasARGV'
 alias opsme="exec bash -ic 'PATH=\"${PATH}:/opt/unity/unitycloud-ops/bin\" bash'"
+alias gitsum='git ls-files -z | xargs -0 grep -F size | pipesum 10000 2'
 
 if $IAMME && $INTERACTIVE && ihave _z; then
     zf="${_Z_DATA:-${HOME}/.z}"
@@ -318,6 +319,9 @@ function convert_transactions()
     echo 'TODO: make converter for old transaction folders in s3!'
 }
 
+# reports the following space-delimited fields for ONLY project/md5 requests:
+#   <timestamp> <remote_ip> <http_method> <project_id> <file_md5> <http_status> <bytes_sent>
+# see-also: http://docs.aws.amazon.com/AmazonS3/latest/dev/LogFormat.html
 function simplified_s3_log()
 {
     if [ $# -lt 1 ]; then
@@ -326,7 +330,7 @@ function simplified_s3_log()
     fi
     cat "$@" | pipejoin $'\3' | awk -F$'\3' '$9 ~ /\// {
 sub(/\[/,"",$3); sub(/\]/,"",$4); gsub("/"," ",$9); split($8,a,".");
-print $3 $4, $5, a[2], $9, $13, $(NF-1);
+print $3 $4, $5, a[2], $9, $11, $13, $(NF-1);
 }'
 }
 
