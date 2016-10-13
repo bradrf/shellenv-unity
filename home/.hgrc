@@ -23,7 +23,8 @@ ono.schemes = https
 ono.prefix = ono.unity3d.com
 ono.username = brad
 lono.schemes = http
-lono.prefix = 10.1.11.99
+#lono.prefix = 10.1.11.99
+lono.prefix = 10.1.17.29
 lono.username = brad
 
 # [merge-tools]
@@ -48,6 +49,7 @@ pager = LESS='FRX' less
 # ignore = version, help, update
 
 [dynapath]
-ipprefix = 10.1.11
+#ipprefix = 10.1.11
+ipprefix = 10.1.17
 pathprefix = https://ono.unity3d.com/
-pathsubst = http://10.1.11.99/
+pathsubst = http://10.1.17.29/

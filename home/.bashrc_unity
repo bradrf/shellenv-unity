@@ -407,9 +407,11 @@ function beanstool()
         (
             set -e
             cd "${HOME}/bin"
-            wget https://github.com/src-d/beanstool/releases/download/v0.2.0/beanstool_v0.2.0_linux_amd64.tar.gz
-            tar zxf beanstool_v0.2.0_linux_amd64.tar.gz --strip-components=1 beanstool_v0.2.0_linux_amd64/beanstool
-            rm -f beanstool_v0.2.0_linux_amd64.tar.gz
+            ver='0.2.0'
+            fn="beanstool_v${ver}_$(downcase "$UNAME")_amd64"
+            wget "https://github.com/src-d/beanstool/releases/download/v${ver}/${fn}.tar.gz"
+            tar zxf "${fn}.tar.gz" --strip-components=1 "${fn}/beanstool"
+            rm -f "${fn}.tar.gz"
         )
     fi
     "$beanbin" "$@" --host="${BEANSTOOL_IP:=$(get_iface_ip inet eth0)}:11300"
