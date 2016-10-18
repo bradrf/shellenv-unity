@@ -280,8 +280,10 @@ function convert_pointers()
             if ! aws s3api head-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then
                 echo "Missing ${bucket}/${key} in ${fn}" >&2
                 key="collab_archive_${pfk}/${md5}"
-                if ! aws s3api head-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then
-                    echo "Also missing ${bucket}/${key} in ${fn}" >&2
+                if aws s3api head-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then
+                    echo "Archived as ${bucket}/${key}" >&2
+                else
+                    echo "Also missing ${bucket}/${key}" >&2
                     (( failures++ ))
                 fi
             fi
@@ -403,6 +405,12 @@ function statsd_report()
 function beanstool()
 {
     local beanbin="${HOME}/bin/beanstool"
+    if [ -f /etc/default/beanstalkd ]; then
+        .  /etc/default/beanstalkd
+    else
+        BEANSTALKD_LISTEN_ADDR="$(get_iface_ip inet eth0)"
+        BEANSTALKD_LISTEN_PORT='11300'
+    fi
     if [ ! -x "$beanbin" ]; then
         (
             set -e
@@ -414,7 +422,7 @@ function beanstool()
             rm -f "${fn}.tar.gz"
         )
     fi
-    "$beanbin" "$@" --host="${BEANSTOOL_IP:=$(get_iface_ip inet eth0)}:11300"
+    "$beanbin" "$@" --host="${BEANSTALKD_LISTEN_ADDR}:${BEANSTALKD_LISTEN_PORT}"
 }
 
 # TODO add send_syslog() to enable posting to papertrail (should be done in our deploy script, too)
