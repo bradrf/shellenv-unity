@@ -278,12 +278,12 @@ function convert_pointers()
         else
             key="${pfk}/${md5}"
             if ! aws s3api head-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then
-                echo "Missing ${bucket}/${key} in ${fn}" >&2
+                # echo "Missing ${bucket}/${key} in ${fn}" >&2
                 key="collab_archive_${pfk}/${md5}"
                 if aws s3api head-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then
-                    echo "Archived as ${bucket}/${key}" >&2
+                    echo "${fn} is ARCHIVED as ${bucket}/${key}" >&2
                 else
-                    echo "Also missing ${bucket}/${key}" >&2
+                    echo "${fn} is MISSING ${bucket}/${key} (and is not archived)" >&2
                     (( failures++ ))
                 fi
             fi
@@ -423,6 +423,46 @@ function beanstool()
         )
     fi
     "$beanbin" "$@" --host="${BEANSTALKD_LISTEN_ADDR}:${BEANSTALKD_LISTEN_PORT}"
+}
+
+function capacity()
+{
+    if [ $# -lt 3 ]; then
+        echo 'usage: capacity <req_per_second> <ms_latency> <num_workers>' >&2
+        return 1
+    fi
+    calc "$1 / ((1000 / $2) * $3)"
+}
+
+function s3_remove_zero_byte_files()
+{
+    local bucket count total upid md5
+    if [ $# -lt 1 ]; then
+        echo 'usage: s3_remove_zero_byte_files <bucket> [<upid> ...]' >&2
+        return 1
+    fi
+
+    bucket="$1"; shift
+    upids="$@"
+
+    [ -z "$upids" ] && upids=`s3ls $bucket | awk '$1 == "PRE" { print $2 }'`
+
+    total=0
+    for upid in $upids; do
+        count=0
+        echo '----------------------------------------------------------------------'
+        echo "UPID: $upid"
+        for md5 in `s3ls ${bucket}/${upid}/ | awk '$3 == 0 { print $4 }'`; do
+            [ "$md5" = 'd41d8cd98f00b204e9800998ecf8427e' ] && continue
+            key="${bucket}/${upid}/${md5}"
+            # echo "removing: ${key}"
+            aws s3 rm "s3://$key"
+            (( count++ ))
+        done
+        echo "Removed ${count} MD5s from ${upid}"
+        (( total+=count ))
+    done
+    echo "Removed ${total} MD5s from ${bucket}"
 }
 
 # TODO add send_syslog() to enable posting to papertrail (should be done in our deploy script, too)
