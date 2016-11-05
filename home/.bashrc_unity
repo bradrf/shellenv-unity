@@ -207,7 +207,7 @@ fi
 if [ "$(id -un)" = 'nobody' ]; then
     function collab_exec()
     {
-        g collab && ./bin/bundle exec "$@"
+        z current && ./bin/bundle exec "$@"
     }
 
     function clone_project()
@@ -217,7 +217,7 @@ if [ "$(id -un)" = 'nobody' ]; then
 else
     function collab_exec()
     {
-        sudo -u nobody bash -ic "cd '$(p collab)' && ./bin/bundle exec $(shellwords "$@")"
+        sudo -u nobody bash -ic "cd '$(z -e current)' && ./bin/bundle exec $(shellwords "$@")"
     }
 
     function clone_project()
@@ -262,7 +262,7 @@ function convert_pointers()
 
     local total=`git ls-files "$dir" | wc -l`
     local count=0
-    git ls-files | while read fn; do
+    while read -r fn; do
         (( count++ ))
         md5="$(awk '/^uc_md5/{print $2}' "$fn")"
         if [ -z "$md5" ]; then
@@ -293,7 +293,9 @@ function convert_pointers()
             break
         fi
         [ $(( $count % 10 )) -eq 0 ] && echo "Processed ${count} / ${total}"
-    done
+    done < <(git ls-files)
+
+    return [ $failures -eq 0 ]
 }
 
 function unconvert_pointers()
@@ -364,7 +366,7 @@ function report_project_versions()
         return 1
     fi
 
-    cat "$lfn" | while read line; do
+    while read -r line; do
         res="$(echo "$line" | sed -n 's/^.*projects\/\([^\/]*\).*UnityEditor\/\([^ ]*\).*/upid="\1";ver="\2"/p')"
         eval "$res"
         if [ -z "$upid" -o -z "$ver" ]; then
@@ -377,7 +379,7 @@ function report_project_versions()
         else
             echo "${upid}:${tag}:${ver}"
         fi
-    done
+    done < <(cat "$lfn")
 }
 
 function statsd_report()
@@ -455,7 +457,7 @@ function s3_remove_zero_byte_files()
     bucket="$1"; shift
     if [ $# -gt 0 ]; then
         search=()
-        for upid in "$@"; do search+=($upid); done
+        for upid in "$@"; do search+=($upfid); done
     else
         search=("$bucket")
     fi
