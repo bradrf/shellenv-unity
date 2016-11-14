@@ -226,10 +226,19 @@ else
     }
 fi
 
-function collab_rbtrace
+function collab_rbtrace_workers
 {
-    collab_exec rbtrace --ps 'unicorn worker' -e "$@"
+    collab_exec rbtrace --ps='unicorn worker' -e "$@"
 }
+
+function collab_rbtrace_master
+{
+    collab_exec rbtrace -p "$(pgrep -f unicorn\ master)" -e "$@"
+}
+
+# TODO: add helper for running this:
+# ueach -a -p production-collab-\\d+ -- 'sudo -u nobody bash -ic "/opt/unity/unity-collab-service/current/bin/bundle exec rbtrace -p \$(pgrep -f unicorn\ master) -e Rails.configuration.memcached_client"'
+
 
 function collab_loglevel()
 {
