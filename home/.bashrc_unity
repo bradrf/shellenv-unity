@@ -304,7 +304,10 @@ function convert_pointers()
         [ $(( $count % 10 )) -eq 0 ] && echo "Processed ${count} / ${total}"
     done < <(git ls-files)
 
-    return [ $failures -eq 0 ]
+    [ $failures -eq 0 ] && return 0
+
+    echo "Summary: ${failures} failures reported"
+    return 2
 }
 
 function unconvert_pointers()
