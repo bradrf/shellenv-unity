@@ -1,0 +1,66 @@
+#!/bin/bash
+
+
+if [[ $# != 1 ]]; then
+    BN="$(basename "$0" .sh)"
+    cat <<EOF >&2
+
+usage: ${BN} <upid>
+
+  Moves archived MD5 S3 objects stored in the Collab storage bucket back into the main project
+  folder and marks them for recovery from Glacier.
+
+  Must be run on a Collab instance in the appropriate environment.
+
+  Errors are expected to occur as some objects may not yet have been moved to Glacier and those that
+  have can't be moved immediately. Thus, the same set of MD5s might need to be run several hours
+  later to finalize the process.
+
+  EXAMPLE:
+
+    echo 73d5760484b126d0481fc71aa042e01f | ${BN} c3a45c37-22ff-42f1-af4f-c9709d4ca7c9
+
+EOF
+    exit 1
+fi
+
+upid=$1
+
+. /etc/ec2-tags || exit 2
+
+bucket="unitycloud-collab-store-${env}"
+requested=0
+found=0
+restored=0
+
+while read -r md5; do
+    (( requested++ ))
+    echo '-----------------------------------------------------------------------------------------'
+
+    archive_key="collab_archive_${upid}/${md5}"
+    echo "Checking: ${bucket}/${archive_key}"
+    aws s3api head-object --bucket "$bucket" --key "$archive_key" || continue
+
+    (( found++ ))
+
+    echo "Restoring: ${bucket}/${archive_key}"
+    aws s3api restore-object --bucket "$bucket" --key "$archive_key" --restore-request Days=1 || :
+
+    dst_key="${upid}/${md5}"
+    echo "Moving to: ${bucket}/${dst_key}"
+    aws s3 mv "s3://${bucket}/${archive_key}" "s3://${bucket}/$dst_key"
+
+    echo "Validating: ${bucket}/${dst_key}"
+    if aws s3api head-object --bucket "$bucket" --key "$dst_key"; then
+        (( restored++ ))
+    fi
+done
+
+cat <<EOF
+
+=========================================================================================
+Restored ${restored}/${found} from ${requested} MD5s
+
+EOF
+
+[[ $restored == $requested ]]

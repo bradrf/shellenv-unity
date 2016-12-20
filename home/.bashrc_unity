@@ -233,7 +233,7 @@ function collab_rbtrace_workers
 
 function collab_rbtrace_master
 {
-    collab_exec rbtrace -p "$(pgrep -f unicorn\ master)" -e "$@"
+    collab_exec rbtrace --ps="$(pgrep -f unicorn\ master)" -e "$@"
 }
 
 # TODO: add helper for running this:
@@ -271,7 +271,8 @@ function convert_pointers()
 
     local total=`git ls-files "$dir" | wc -l`
     local count=0
-    while read -r fn; do
+    # read using NUL terminators to properly handle UTF-8 encoding of file names
+    while read -r -d $'\0' fn; do
         (( count++ ))
         md5="$(awk '/^uc_md5/{print $2}' "$fn")"
         if [ -z "$md5" ]; then
@@ -302,7 +303,7 @@ function convert_pointers()
             break
         fi
         [ $(( $count % 10 )) -eq 0 ] && echo "Processed ${count} / ${total}"
-    done < <(git ls-files)
+    done < <(git ls-files -z)
 
     [ $failures -eq 0 ] && return 0
 
@@ -446,6 +447,15 @@ function capacity()
         return 1
     fi
     calc "$1 / ((1000 / $2) * $3)"
+}
+
+function workers_needed()
+{
+    if [ $# -lt 3 ]; then
+        echo 'usage: workers_needed <req_per_second> <ms_latency> <capacity>' >&2
+        return 1
+    fi
+    calc "($1 / (1000 / $2)) / $3"
 }
 
 function progress_report()
