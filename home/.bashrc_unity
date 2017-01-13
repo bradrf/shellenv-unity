@@ -245,6 +245,11 @@ function collab_loglevel()
     collab_rbtrace "Rails.logger.level = :$1"
 }
 
+# TODO:
+# upid="$(basename `pwd -P`)"
+# convert_pointers . 2>&1 | tee >(awk '/is ARCHIVED as/{split($NF,a,"/");b=a[3];if(!(b in k)){print b;k[b]=1}}' > ~/${upid}.md5s)
+# cat ~/${upid}.md5s | s3-unarchive ${upid}
+
 # TODO: add easy ability to convert only one file!
 function convert_pointers()
 {

@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 if [[ $# != 1 ]]; then
     BN="$(basename "$0" .sh)"
     cat <<EOF >&2
@@ -34,19 +33,29 @@ found=0
 restored=0
 
 while read -r md5; do
+    [ -n "$md5" ] || continue
+
     (( requested++ ))
     echo '-----------------------------------------------------------------------------------------'
 
     archive_key="collab_archive_${upid}/${md5}"
+    dst_key="${upid}/${md5}"
+
     echo "Checking: ${bucket}/${archive_key}"
-    aws s3api head-object --bucket "$bucket" --key "$archive_key" || continue
+    if ! aws s3api head-object --bucket "$bucket" --key "$archive_key"; then
+        # Might've already been restored?
+        echo "Validating: ${bucket}/${dst_key}"
+        if aws s3api head-object --bucket "$bucket" --key "$dst_key"; then
+            (( restored++ ))
+        fi
+        continue
+    fi
 
     (( found++ ))
 
     echo "Restoring: ${bucket}/${archive_key}"
     aws s3api restore-object --bucket "$bucket" --key "$archive_key" --restore-request Days=1 || :
 
-    dst_key="${upid}/${md5}"
     echo "Moving to: ${bucket}/${dst_key}"
     aws s3 mv "s3://${bucket}/${archive_key}" "s3://${bucket}/$dst_key"
 
