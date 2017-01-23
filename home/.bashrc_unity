@@ -149,10 +149,11 @@ bin/rails "$@"\"'"
 function volfor()
 {
     local pfk="$(downcase "$1")"
+    local shard="${pfk:0:2}"
     if $IAMME; then
-        sudo su -c 'ls -d /mnt/repos/volume*/*/'$pfk
+        sudo su -c 'ls -1dt /mnt/repos/volume*'/${shard}/${pfk} | head -1
     else
-        ls -d /mnt/repos/volume*/*/$pfk
+        ls -1dt /mnt/repos/volume*/${shard}/${pfk} | head -1
     fi
 }
 
@@ -239,7 +240,6 @@ function collab_rbtrace_master
 # TODO: add helper for running this:
 # ueach -a -p production-collab-\\d+ -- 'sudo -u nobody bash -ic "/opt/unity/unity-collab-service/current/bin/bundle exec rbtrace -p \$(pgrep -f unicorn\ master) -e Rails.configuration.memcached_client"'
 
-
 function collab_loglevel()
 {
     collab_rbtrace "Rails.logger.level = :$1"
@@ -248,7 +248,8 @@ function collab_loglevel()
 # TODO:
 # upid="$(basename `pwd -P`)"
 # convert_pointers . 2>&1 | tee >(awk '/is ARCHIVED as/{split($NF,a,"/");b=a[3];if(!(b in k)){print b;k[b]=1}}' > ~/${upid}.md5s)
-# cat ~/${upid}.md5s | s3-unarchive ${upid}
+# one-time:
+# convert_pointers . 2>&1 | tee >(awk '/is ARCHIVED as/{split($NF,a,"/");b=a[3];if(!(b in k)){print b;k[b]=1};fflush();}' | s3-unarchive $(basename $PWD))
 
 # TODO: add easy ability to convert only one file!
 function convert_pointers()
