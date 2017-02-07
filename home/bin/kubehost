@@ -1,0 +1,62 @@
+#!/bin/bash
+
+function usage()
+{
+    cat <<EOF
+
+usage: $(basename "$0" .sh) [OPTIONS] [<pod_match>]
+
+  -n   namespace for pod selection (default is to search all namespaces)
+
+  pod_match   regular expression to restrict matching lines (default shows all)
+
+  Default format is to use "wide" unless one or more of the following are requested:
+     --name                  show pod names column
+     --node                  show node names column
+     --node-ip               show node host IP column
+     --stat[us]              show status column
+     --con[tainers]          show containers column
+     --col[umn] <json_path>  show any other column selected by JSON path
+                             (see kubectl get pods -o=json)
+
+EOF
+    exit 1
+}
+
+COLUMNS=()
+NAMESPACE='--all-namespaces'
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -n)
+            shift; NAMESPACE="--namespace=$1";;
+        --name)
+            COLUMNS+=(':.metadata.name');;
+        --node)
+            COLUMNS+=(':.spec.nodeName');;
+        --node-ip)
+            COLUMNS+=(':.status.hostIP');;
+        --stat*)
+            COLUMNS+=(':.status.phase');;
+        --con*)
+            COLUMNS+=(':.status.containerStatuses[*].name');;
+        --col*)
+            shift; COLUMNS+=(":.$1");;
+        *-h*)
+            usage;;
+        -*)
+            echo "unknown option: $1"; exit 2;;
+        *)
+            break;;
+    esac
+    shift
+done
+
+if [[ ${#COLUMNS[@]} -gt 0 ]]; then
+    FORMAT="custom-columns=$(IFS=,;echo -n "${COLUMNS[*]}")"
+else
+    FORMAT='wide'
+fi
+
+# awk select non empty lines matching remaining args
+exec kubectl get pods "$NAMESPACE" "-o=$FORMAT" | awk 'NF && /'"$*"'/{print}'

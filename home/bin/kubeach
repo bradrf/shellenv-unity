@@ -1,0 +1,56 @@
+#!/bin/bash
+
+function usage()
+{
+    cat <<EOF
+
+usage: $(basename "$0" .sh) [OPTIONS] <pod_match> <container> <remote_cmd> [<remote_args...>]
+
+  -n   namespace for pod selection (default is to search all namespaces)
+  -a   asynchronous (i.e. execute all in parrallel; default is sequential)
+  -p   prefix each line of output with hostname inside pod
+  -t   enable TTY during remote execution
+
+  pod_match   selection criteria (see kubehost --help)
+  container   select a container (see kubehost --name --containers)
+  remote_cmd  command (and optional remote_args) to execute remotely under /bin/sh
+
+EOF
+    exit 1
+}
+
+[[ $# -lt 3 ]] && usage
+
+KUBECTL_ARGS=()
+XARGS_ARGS=()
+
+while test $# -gt 0; do
+    case "$1" in
+        -n) shift; NAMESPACE=$1;;
+        -a) XARGS_ARGS+=(-P 50);;
+        -p) PREFIX=" | sed -e \"s/^/\`hostname -f\` /\"";;
+        -t) KUBECTL_ARGS+=(-ti);;
+        *-h*) usage;;
+        -*) echo "unknown option: $1"; exit 2;;
+        *)  break;;
+    esac
+    shift
+done
+
+POD_MATCH=$1; shift
+CONTAINER=$1; shift
+
+KUBEHOST_ARGS=(--name)
+if [[ -n "$NAMESPACE" ]]; then
+    KUBEHOST_ARGS+=(-n "$NAMESPACE")
+    KUBECTL_ARGS+=(--namespace="$NAMESPACE")
+else
+    KUBECTL_ARGS+=(--all-namespaces)
+fi
+
+HOSTS=($(kubehost "${KUBEHOST_ARGS[@]}" | awk '/'"${POD_MATCH}"'/{print}'))
+
+(IFS=$'\n'; echo -n "${HOSTS[*]}") | \
+    xargs "${XARGS_ARGS[@]}" -n 1 -I {} \
+          kubectl exec "${KUBECTL_ARGS[@]}" -c "$CONTAINER" {} -- \
+                  /bin/sh -c "$* $PREFIX"
