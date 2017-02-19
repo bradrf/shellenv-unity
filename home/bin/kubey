@@ -11,6 +11,7 @@ import click
 import jmespath
 
 from fnmatch import fnmatch
+from threading import Thread
 from tabulate import tabulate
 
 class Cache(object):
@@ -49,23 +50,67 @@ class Cache(object):
     def _set_expiry(self):
         self._expiry = os.path.getmtime(self.path) + self.seconds
 
+class BackgroundPopen(subprocess.Popen):
+    @staticmethod
+    def prefix_handler(prefix, io):
+        return lambda line: io.write(prefix + line)
+
+    @staticmethod
+    def _proxy_lines(pipe, handler):
+        with pipe:
+            for line in pipe:
+                handler(line)
+
+    def __init__(self, out_handler, err_handler, *args, **kwargs):
+        kwargs['stdout'] = subprocess.PIPE
+        kwargs['stderr'] = subprocess.PIPE
+        super(self.__class__, self).__init__(*args, **kwargs)
+        Thread(target=self._proxy_lines, args=[self.stdout, out_handler]).start()
+        Thread(target=self._proxy_lines, args=[self.stderr, err_handler]).start()
+
 class KubeCtl(object):
     def __init__(self):
         self._kubectl = subprocess.check_output('which kubectl', shell=True).strip()
+        self._processes = []
+        self._threads = []
+        self.final_rc = 0
 
     def get(self, *args):
-        return json.loads(subprocess.check_output(self.commandline('get', '--output=json', *args)))
+        return json.loads(subprocess.check_output(self._commandline('get', '--output=json', *args)))
 
     def execute(self, *args):
-        return subprocess.check_output(self.commandline('exec', *args))
+        cl = self._commandline('exec', *args)
+        return self._check(cl, subprocess.call(cl))
 
-    def execute_interactive(self, *args):
-        return subprocess.call(self.commandline('exec', '-ti', *args))
+    def execute_async(self, *args):
+        cl = self._commandline('exec', *args)
+        self._processes.append((cl, subprocess.Popen(cl)))
+        return 0
 
-    def commandline(self, command, *args):
+    def execute_prefix(self, prefix, *args):
+        out_handler = BackgroundPopen.prefix_handler(prefix, sys.stdout)
+        err_handler = BackgroundPopen.prefix_handler('[ERR] ' + prefix, sys.stderr)
+        cl = self._commandline('exec', *args)
+        self._processes.append((cl, BackgroundPopen(out_handler, err_handler, cl)))
+        return 0
+
+    def wait(self):
+        procs = self._processes
+        self._process = []
+        for cl, proc in procs:
+            self._check(cl, proc.wait())
+        return self.final_rc
+
+    def _commandline(self, command, *args):
         commandline = (self._kubectl, command) + args
         _logger.debug(' '.join(commandline))
         return commandline
+
+    def _check(self, cl, rc):
+        if rc != 0:
+            self._final_rc = rc
+            _logger.warn('%s => exit status: %d' % (' '.join(cl), rc))
+        return rc
 
 ######################################################################
 
@@ -122,20 +167,45 @@ def list(obj, columns):
 @cli.command(context_settings=dict(ignore_unknown_options=True))
 @click.option('-c', '--container', default=ALL_CONTAINERS, show_default=True)
 @click.option('-s', '--shell', default='/bin/sh', show_default=True)
-@click.option('-i', '--interactive', is_flag=True, show_default=True)
+@click.option('-i', '--interactive', is_flag=True)
+@click.option('-a', '--async', is_flag=True)
+@click.option('-p', '--prefix', is_flag=True)
 @click.argument('command')
 @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
 @click.pass_obj
-def each(obj, container, shell, interactive, command, arguments):
+def each(obj, container, shell, interactive, async, prefix, command, arguments):
     kubectl = obj['kubectl']
-    kexec = kubectl.execute_interactive if interactive else kubectl.execute
+
+    if interactive and async:
+        click.get_current_context().fail('Interactive and async do not operate together')
+    if interactive and prefix:
+        click.get_current_context().fail('Interactive and prefix do not operate together')
+
+    if interactive:
+        kexec = kubectl.execute_interactive
+    elif prefix:
+        kexec = kubectl.execute_prefix
+    elif async:
+        kexec = kubectl.execute_async
+    else:
+        kexec = kubectl.execute
+
     remote_args = ['exec', command] + [pipes.quote(a) for a in arguments]
     remote_cmd = [shell, '-c', ' '.join(remote_args)]
+
     for (name, namespace, containers) in each_pod(obj, ['name', 'namespace', 'containers']):
         for con in containers:
             if not fnmatch(con, container):
                 continue
-            print kexec('--namespace=' + namespace, '-c', con, name, '--', *remote_cmd)
+            args = ['[%s:%s] ' % (name, con)] if prefix else []
+            args += ['--namespace=' + namespace, '-c', con, name, '--'] + remote_cmd
+            rc = kexec(*args)
+
+    if async:
+        kubectl.wait()
+
+    if kubectl.final_rc != 0:
+        click.get_current_context().exit(kubectl.final_rc)
 
 def each_pod(obj, columns):
     query = obj['query'] + '.[' + ','.join([COLUMN_MAP[c] for c in columns]) + ']'
