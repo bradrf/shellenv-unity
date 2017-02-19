@@ -2,14 +2,14 @@
 
 function usage()
 {
-    cat <<EOF
+    cat <<EOF >&2
 
-usage: $(basename "$0" .sh) [OPTIONS] <pod_match> <container> <remote_cmd> [<remote_args...>]
+usage: $(basename "$0" .sh) [OPTIONS] <pod_match> [<container>] -- <remote_cmd> [<remote_args...>]
 
   -n   namespace for pod selection (default is to search all namespaces)
   -a   asynchronous (i.e. execute all in parrallel; default is sequential)
   -p   prefix each line of output with hostname inside pod
-  -t   enable TTY during remote execution
+  -t   enable TTY during remote execution (implicit if remote_cmd is "bash" or "sh")
 
   pod_match   selection criteria (see kubehost --help)
   container   select a container (see kubehost --name --containers)
@@ -19,12 +19,10 @@ EOF
     exit 1
 }
 
-[[ $# -lt 3 ]] && usage
-
 KUBECTL_ARGS=()
 XARGS_ARGS=()
 
-while test $# -gt 0; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
         -n) shift; NAMESPACE=$1;;
         -a) XARGS_ARGS+=(-P 50);;
@@ -37,20 +35,53 @@ while test $# -gt 0; do
     shift
 done
 
-POD_MATCH=$1; shift
-CONTAINER=$1; shift
+[[ $# -lt 1 ]] && usage
 
-KUBEHOST_ARGS=(--name)
-if [[ -n "$NAMESPACE" ]]; then
-    KUBEHOST_ARGS+=(-n "$NAMESPACE")
-    KUBECTL_ARGS+=(--namespace="$NAMESPACE")
+POD_MATCH=$1; shift
+if [[ "$1" = '--' ]]; then
+    shift
 else
-    KUBECTL_ARGS+=(--all-namespaces)
+    CONTAINER=$1
+    shift
 fi
 
-HOSTS=($(kubehost "${KUBEHOST_ARGS[@]}" | awk '/'"${POD_MATCH}"'/{print}'))
+REMOTE_CMD_ARGS="$*"
+if [[ "$REMOTE_CMD_ARGS" = 'bash' || "$REMOTE_CMD_ARGS" = 'sh' ]]; then
+    [[ "${KUBECTL_ARGS[*]}" != *-ti* ]] && KUBECTL_ARGS+=(-ti)
+fi
 
-(IFS=$'\n'; echo -n "${HOSTS[*]}") | \
-    xargs "${XARGS_ARGS[@]}" -n 1 -I {} \
-          kubectl exec "${KUBECTL_ARGS[@]}" -c "$CONTAINER" {} -- \
-                  /bin/sh -c "$* $PREFIX"
+KUBEHOST_ARGS=(--name --namespace --containers)
+if [[ -n "$NAMESPACE" ]]; then
+    KUBEHOST_ARGS+=(-n "$NAMESPACE")
+fi
+
+POD_NAMES=()
+while read -r line; do
+    cols=($line)
+    POD_NAMES+=(${cols[0]})
+    [[ -z "$NAMESPACE" ]] && NAMESPACE=${cols[1]}
+    if [[ -z "$CONTAINER" ]]; then
+        containers=(${cols[2]//,/ })
+        CONTAINER=${containers[0]}
+    fi
+done < <(kubehost "${KUBEHOST_ARGS[@]}" "${POD_MATCH}")
+
+if [[ -z "$CONTAINER" ]]; then
+    echo 'Container not provided' >&2
+    exit 3
+fi
+
+if [[ -z "$NAMESPACE" ]]; then
+    echo 'Namespace not provided' >&2
+    exit 4
+fi
+
+KUBECTL_ARGS+=(--namespace="$NAMESPACE" exec -c "$CONTAINER")
+
+if [[ ${#POD_NAMES[@]} -eq 1 ]]; then
+    exec kubectl "${KUBECTL_ARGS[@]}" "${POD_NAMES[0]}" -- /bin/sh -c "exec $REMOTE_CMD_ARGS $PREFIX"
+else
+    (IFS=$'\n'; echo -n "${POD_NAMES[*]}") | \
+        xargs "${XARGS_ARGS[@]}" -n 1 -I {} \
+              kubectl "${KUBECTL_ARGS[@]}" {} -- /bin/sh -c "exec $REMOTE_CMD_ARGS $PREFIX"
+fi

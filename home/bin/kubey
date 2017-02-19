@@ -1,0 +1,146 @@
+#!/usr/bin/env python
+
+import sys
+import os
+import logging
+import subprocess
+import json
+import time
+import pipes
+import click
+import jmespath
+
+from fnmatch import fnmatch
+from tabulate import tabulate
+
+class Cache(object):
+    def __init__(self, path, seconds, retriever, *retriever_args):
+        self.path = path
+        self.seconds = seconds
+        self.retriever = retriever
+        self.retriever_args = retriever_args
+        self._obj = None
+        self._expiry = None
+
+    def obj(self):
+        self._consider_update()
+        return self._obj
+
+    def _consider_update(self):
+        if self._is_stale():
+            self._update()
+        elif not self._obj:
+            with open(self.path) as f:
+                self._obj = json.load(f)
+
+    def _is_stale(self):
+        if not self._expiry:
+            if not os.path.exists(self.path):
+                return True
+            self._set_expiry()
+        return self._expiry < time.time()
+
+    def _update(self):
+        self._obj = self.retriever(*self.retriever_args)
+        with open(self.path, 'wb') as f:
+            json.dump(self._obj, f)
+        self._set_expiry()
+
+    def _set_expiry(self):
+        self._expiry = os.path.getmtime(self.path) + self.seconds
+
+class KubeCtl(object):
+    def __init__(self):
+        self._kubectl = subprocess.check_output('which kubectl', shell=True).strip()
+
+    def get(self, *args):
+        return json.loads(subprocess.check_output(self.commandline('get', '--output=json', *args)))
+
+    def execute(self, *args):
+        return subprocess.check_output(self.commandline('exec', *args))
+
+    def execute_interactive(self, *args):
+        return subprocess.call(self.commandline('exec', '-ti', *args))
+
+    def commandline(self, command, *args):
+        commandline = (self._kubectl, command) + args
+        _logger.debug(' '.join(commandline))
+        return commandline
+
+######################################################################
+
+ANY_NAMESPACE = '*'
+ALL_CONTAINERS = '*'
+
+COLUMN_MAP = {
+    'name': 'metadata.name',
+    'namespace': 'metadata.namespace',
+    'node': 'spec.nodeName',
+    'node-ip': 'status.hostIP',
+    'status': 'status.phase',
+    'containers': 'status.containerStatuses[*].name',
+}
+
+BN = os.path.basename(__file__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s #%(process)d] %(levelname)-8s %(name)-12s %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%S%z'
+)
+_logger = logging.getLogger(BN)
+
+@click.group(context_settings=dict(help_option_names=['-h', '--help']))
+@click.option('-n', '--namespace', default=ANY_NAMESPACE, show_default=True)
+@click.option('--cache-seconds', default=300, show_default=True)
+@click.option('-l', '--log-level', default='info',
+              type=click.Choice(['debug', 'info', 'warning', 'error', 'critical']),
+              help='set logging level')
+@click.pass_context
+def cli(ctx, namespace, cache_seconds, log_level):
+    _logger.level = getattr(logging, log_level.upper())
+    kubectl = KubeCtl()
+    pods_cache_fn = os.path.join(os.path.expanduser('~'), '.%s_pods' % (BN))
+    pods_cache = Cache(pods_cache_fn, cache_seconds, kubectl.get, 'pods', '--all-namespaces')
+    # TODO: support glob matching?
+    if namespace == ANY_NAMESPACE:
+        query = 'items[*]'
+    else:
+        query = 'items[?metadata.namespace==\'%s\']' % (namespace)
+    ctx.obj = {
+        'kubectl': kubectl,
+        'pods': pods_cache.obj(),
+        'query': query,
+    }
+
+@cli.command()
+@click.option('-c', '--columns', default=','.join(COLUMN_MAP.keys()), show_default=True)
+@click.pass_obj
+def list(obj, columns):
+    columns = [c.strip() for c in columns.split(',')]
+    print tabulate(each_pod(obj, columns), headers=columns)
+
+@cli.command(context_settings=dict(ignore_unknown_options=True))
+@click.option('-c', '--container', default=ALL_CONTAINERS, show_default=True)
+@click.option('-s', '--shell', default='/bin/sh', show_default=True)
+@click.option('-i', '--interactive', is_flag=True, show_default=True)
+@click.argument('command')
+@click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
+@click.pass_obj
+def each(obj, container, shell, interactive, command, arguments):
+    kubectl = obj['kubectl']
+    kexec = kubectl.execute_interactive if interactive else kubectl.execute
+    remote_args = ['exec', command] + [pipes.quote(a) for a in arguments]
+    remote_cmd = [shell, '-c', ' '.join(remote_args)]
+    for (name, namespace, containers) in each_pod(obj, ['name', 'namespace', 'containers']):
+        for con in containers:
+            if not fnmatch(con, container):
+                continue
+            print kexec('--namespace=' + namespace, '-c', con, name, '--', *remote_cmd)
+
+def each_pod(obj, columns):
+    query = obj['query'] + '.[' + ','.join([COLUMN_MAP[c] for c in columns]) + ']'
+    for pod in jmespath.search(query, obj['pods']):
+        yield pod
+
+if __name__ == '__main__':
+    cli()

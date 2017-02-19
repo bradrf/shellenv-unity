@@ -12,11 +12,11 @@ else
     wait_seconds=60
 fi
 
-if [[ $# -lt 4 || -z "$instance_id" ]]; then
+if [[ $# -lt 2 || -z "$instance_id" ]]; then
     cat <<EOF >&2
 
 usage: $(basename "$0" .sh) [-i <instance_id>] [-w <wait_seconds>] { restart | stop | start } \
-<service_name> <elb_name> [<elb_name> ...]
+<service_name>
 
 EOF
     exit 1
@@ -47,7 +47,6 @@ case "$action" in
 esac
 
 service_name="$1"; shift
-elb_names="$*"
 
 function now()
 {
@@ -62,6 +61,9 @@ function get_conns()
 AWS_AVAILABILTY_ZONE="$(ec2metadata --availability-zone)"
 AWS_DEFAULT_REGION="${AWS_AVAILABILTY_ZONE%?}" # strip availibility character at end
 export AWS_AVAILABILTY_ZONE AWS_DEFAULT_REGION
+
+# get elb names
+elb_names=$(aws elb describe-load-balancers --output text --query "LoadBalancerDescriptions[?Instances[?InstanceId=='${instance_id}']].LoadBalancerName")
 
 if $stopping; then
     q='LoadBalancerAttributes.ConnectionDraining.Timeout'
@@ -89,11 +91,7 @@ if $stopping; then
     done
 
     conns=`get_conns -c`
-    if [ $conns -gt 0 ]; then
-        echo "Gave up waiting on ${conns} to drain" >&2
-    else
-        echo 'All connections drained'
-    fi
+    [ $conns -gt 0 ] && echo "Gave up waiting on ${conns} to drain" >&2
 
     echo "Stopping ${service_name}"
     service "$service_name" stop

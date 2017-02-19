@@ -2,7 +2,7 @@
 
 function usage()
 {
-    cat <<EOF
+    cat <<EOF >&2
 
 usage: $(basename "$0" .sh) [OPTIONS] [<pod_match>]
 
@@ -12,6 +12,7 @@ usage: $(basename "$0" .sh) [OPTIONS] [<pod_match>]
 
   Default format is to use "wide" unless one or more of the following are requested:
      --name                  show pod names column
+     --namepspace            show namespace column
      --node                  show node names column
      --node-ip               show node host IP column
      --stat[us]              show status column
@@ -23,6 +24,10 @@ EOF
     exit 1
 }
 
+# TODO: consider always showing containers
+# TODO: kubelogs
+# TODO: kubehost => ssh/config ?
+
 COLUMNS=()
 NAMESPACE='--all-namespaces'
 
@@ -32,6 +37,8 @@ while [[ $# -gt 0 ]]; do
             shift; NAMESPACE="--namespace=$1";;
         --name)
             COLUMNS+=(':.metadata.name');;
+        --namespace)
+            COLUMNS+=(':.metadata.namespace');;
         --node)
             COLUMNS+=(':.spec.nodeName');;
         --node-ip)

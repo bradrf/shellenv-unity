@@ -518,5 +518,3 @@ function s3_remove_zero_byte_files()
     done
     echo "Removed ${total} of ${line_count} items from ${bucket}"
 }
-
-# TODO add send_syslog() to enable posting to papertrail (should be done in our deploy script, too)
