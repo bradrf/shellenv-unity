@@ -75,6 +75,10 @@ class KubeCtl(object):
         self._threads = []
         self.final_rc = 0
 
+    @property
+    def context(self):
+        return subprocess.check_output(self._commandline('config', 'current-context')).strip()
+
     def get(self, *args):
         return json.loads(subprocess.check_output(self._commandline('get', '--output=json', *args)))
 
@@ -91,6 +95,14 @@ class KubeCtl(object):
         out_handler = BackgroundPopen.prefix_handler(prefix, sys.stdout)
         err_handler = BackgroundPopen.prefix_handler('[ERR] ' + prefix, sys.stderr)
         cl = self._commandline('exec', *args)
+        self._processes.append((cl, BackgroundPopen(out_handler, err_handler, cl)))
+        return 0
+
+    # FIXME: DRY this and execute!
+    def logs_prefix(self, prefix, *args):
+        out_handler = BackgroundPopen.prefix_handler(prefix, sys.stdout)
+        err_handler = BackgroundPopen.prefix_handler('[ERR] ' + prefix, sys.stderr)
+        cl = self._commandline('logs', *args)
         self._processes.append((cl, BackgroundPopen(out_handler, err_handler, cl)))
         return 0
 
@@ -135,8 +147,10 @@ logging.basicConfig(
 _logger = logging.getLogger(BN)
 
 @click.group(context_settings=dict(help_option_names=['-h', '--help']))
-@click.option('-n', '--namespace', default=ANY_NAMESPACE, show_default=True)
-@click.option('--cache-seconds', default=300, show_default=True)
+@click.option('-n', '--namespace', default=ANY_NAMESPACE, show_default=True,
+              help='reduce selection within a namespace')
+@click.option('--cache-seconds', default=300, show_default=True,
+              help='change number of seconds to keep pod info cached')
 @click.option('-l', '--log-level', default='info',
               type=click.Choice(['debug', 'info', 'warning', 'error', 'critical']),
               help='set logging level')
@@ -144,7 +158,7 @@ _logger = logging.getLogger(BN)
 def cli(ctx, namespace, cache_seconds, log_level):
     _logger.level = getattr(logging, log_level.upper())
     kubectl = KubeCtl()
-    pods_cache_fn = os.path.join(os.path.expanduser('~'), '.%s_pods' % (BN))
+    pods_cache_fn = os.path.join(os.path.expanduser('~'), '.%s_%s_pods' % (BN, kubectl.context))
     pods_cache = Cache(pods_cache_fn, cache_seconds, kubectl.get, 'pods', '--all-namespaces')
     # TODO: support glob matching?
     if namespace == ANY_NAMESPACE:
@@ -153,27 +167,39 @@ def cli(ctx, namespace, cache_seconds, log_level):
         query = 'items[?metadata.namespace==\'%s\']' % (namespace)
     ctx.obj = {
         'kubectl': kubectl,
-        'pods': pods_cache.obj(),
+        'pods_cache': pods_cache,
         'query': query,
     }
 
 @cli.command()
-@click.option('-c', '--columns', default=','.join(COLUMN_MAP.keys()), show_default=True)
+@click.option('-c', '--columns', default=','.join(COLUMN_MAP.keys()), show_default=True,
+              help='specify specific columns to show')
 @click.pass_obj
 def list(obj, columns):
+    '''List available pods and containers for current context.'''
+
     columns = [c.strip() for c in columns.split(',')]
     print tabulate(each_pod(obj, columns), headers=columns)
 
 @cli.command(context_settings=dict(ignore_unknown_options=True))
-@click.option('-c', '--container', default=ALL_CONTAINERS, show_default=True)
-@click.option('-s', '--shell', default='/bin/sh', show_default=True)
-@click.option('-i', '--interactive', is_flag=True)
-@click.option('-a', '--async', is_flag=True)
-@click.option('-p', '--prefix', is_flag=True)
+@click.option('-c', '--container', default=ALL_CONTAINERS, show_default=True,
+              help='name of container (supports wildcard "glob" matching)')
+@click.option('-s', '--shell', default='/bin/sh', show_default=True,
+              help='alternate shell used for remote execution')
+@click.option('-i', '--interactive', is_flag=True,
+              help='require interactive session '
+                   '(works with REPLs like shells or other command instances needing input)')
+@click.option('-a', '--async', is_flag=True,
+              help='run commands asynchronously (incompatible with "interactive")')
+@click.option('-p', '--prefix', is_flag=True,
+              help='add a prefix to all output indicating the pod and container names '
+                   '(incompatible with "interactive")')
 @click.argument('command')
 @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
 @click.pass_obj
 def each(obj, container, shell, interactive, async, prefix, command, arguments):
+    '''Execute a command remotely for each pod matched.'''
+
     kubectl = obj['kubectl']
 
     if interactive and async:
@@ -198,8 +224,8 @@ def each(obj, container, shell, interactive, async, prefix, command, arguments):
             if not fnmatch(con, container):
                 continue
             args = ['[%s:%s] ' % (name, con)] if prefix else []
-            args += ['--namespace=' + namespace, '-c', con, name, '--'] + remote_cmd
-            rc = kexec(*args)
+            args += ['-n', namespace, '-c', con, name, '--'] + remote_cmd
+            kexec(*args)
 
     if async:
         kubectl.wait()
@@ -207,10 +233,49 @@ def each(obj, container, shell, interactive, async, prefix, command, arguments):
     if kubectl.final_rc != 0:
         click.get_current_context().exit(kubectl.final_rc)
 
+@cli.command()
+@click.option('-c', '--container', default=ALL_CONTAINERS, show_default=True,
+              help='name of container (supports wildcard "glob" matching)')
+@click.option('-f', '--follow', is_flag=True,
+              help='stream new logs until interrupted')
+@click.argument('number', default=click.get_terminal_size()[1])
+@click.pass_obj
+def tail(obj, container, follow, number):
+    '''Show recent logs from containers for each pod matched.'''
+
+    kubectl = obj['kubectl']
+    log_args = ['--tail', str(number)]
+    if follow:
+        log_args.append('-f')
+
+    # FIXME: DRY this up w/ execute loop (make iterator!)
+    for (name, namespace, containers) in each_pod(obj, ['name', 'namespace', 'containers']):
+        for con in containers:
+            if not fnmatch(con, container):
+                continue
+            prefix = '[%s:%s] ' % (name, con)
+            args = ['-n', namespace, '-c', con] + log_args + [name]
+            kubectl.logs_prefix(prefix, *args)
+
+    kubectl.wait()
+    if kubectl.final_rc != 0:
+        click.get_current_context().exit(kubectl.final_rc)
+
 def each_pod(obj, columns):
     query = obj['query'] + '.[' + ','.join([COLUMN_MAP[c] for c in columns]) + ']'
-    for pod in jmespath.search(query, obj['pods']):
+    pods = obj['pods_cache'].obj()
+    for pod in jmespath.search(query, pods):
         yield pod
+
+@cli.command(context_settings=dict(ignore_unknown_options=True))
+@click.argument('resource')
+@click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
+@click.pass_obj
+def get(obj, resource, arguments):
+    '''Get other resource info from current context'''
+    kubectl = obj['kubectl']
+    items = kubectl.get(resource, *arguments)['items']
+    print tabulate(items, headers='keys')
 
 if __name__ == '__main__':
     cli()
