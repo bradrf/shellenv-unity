@@ -79,30 +79,23 @@ class KubeCtl(object):
     def context(self):
         return subprocess.check_output(self._commandline('config', 'current-context')).strip()
 
-    def get(self, *args):
-        return json.loads(subprocess.check_output(self._commandline('get', '--output=json', *args)))
-
-    def execute(self, *args):
-        cl = self._commandline('exec', *args)
+    def call(self, cmd, *args):
+        cl = self._commandline(cmd, *args)
         return self._check(cl, subprocess.call(cl))
 
-    def execute_async(self, *args):
-        cl = self._commandline('exec', *args)
+    def call_json(self, cmd, *args):
+        cl = self._commandline(cmd, '--output=json', *args)
+        return json.loads(subprocess.check_output(cl))
+
+    def call_async(self, cmd, *args):
+        cl = self._commandline(cmd, *args)
         self._processes.append((cl, subprocess.Popen(cl)))
         return 0
 
-    def execute_prefix(self, prefix, *args):
+    def call_prefix(self, cmd, prefix, *args):
         out_handler = BackgroundPopen.prefix_handler(prefix, sys.stdout)
         err_handler = BackgroundPopen.prefix_handler('[ERR] ' + prefix, sys.stderr)
-        cl = self._commandline('exec', *args)
-        self._processes.append((cl, BackgroundPopen(out_handler, err_handler, cl)))
-        return 0
-
-    # FIXME: DRY this and execute!
-    def logs_prefix(self, prefix, *args):
-        out_handler = BackgroundPopen.prefix_handler(prefix, sys.stdout)
-        err_handler = BackgroundPopen.prefix_handler('[ERR] ' + prefix, sys.stderr)
-        cl = self._commandline('logs', *args)
+        cl = self._commandline(cmd, *args)
         self._processes.append((cl, BackgroundPopen(out_handler, err_handler, cl)))
         return 0
 
@@ -146,6 +139,9 @@ logging.basicConfig(
 )
 _logger = logging.getLogger(BN)
 
+# TODO: consider ability to use --context w/o needing to switch
+#       (be best if this can be saved in a configstruct!)
+
 @click.group(context_settings=dict(help_option_names=['-h', '--help']))
 @click.option('-n', '--namespace', default=ANY_NAMESPACE, show_default=True,
               help='reduce selection within a namespace')
@@ -159,7 +155,8 @@ def cli(ctx, namespace, cache_seconds, log_level):
     _logger.level = getattr(logging, log_level.upper())
     kubectl = KubeCtl()
     pods_cache_fn = os.path.join(os.path.expanduser('~'), '.%s_%s_pods' % (BN, kubectl.context))
-    pods_cache = Cache(pods_cache_fn, cache_seconds, kubectl.get, 'pods', '--all-namespaces')
+    pods_cache = Cache(pods_cache_fn, cache_seconds,
+                       kubectl.call_json, 'get', 'pods', '--all-namespaces')
     # TODO: support glob matching?
     if namespace == ANY_NAMESPACE:
         query = 'items[*]'
@@ -201,31 +198,28 @@ def each(obj, container, shell, interactive, async, prefix, command, arguments):
     '''Execute a command remotely for each pod matched.'''
 
     kubectl = obj['kubectl']
-
-    if interactive and async:
-        click.get_current_context().fail('Interactive and async do not operate together')
-    if interactive and prefix:
-        click.get_current_context().fail('Interactive and prefix do not operate together')
-
-    if interactive:
-        kexec = kubectl.execute_interactive
-    elif prefix:
-        kexec = kubectl.execute_prefix
+    kexec_args = ['exec']
+    if prefix:
+        kexec = kubectl.call_prefix
+        if interactive:
+            click.get_current_context().fail('Interactive and prefix do not operate together')
     elif async:
-        kexec = kubectl.execute_async
+        kexec = kubectl.call_async
+        if interactive:
+            click.get_current_context().fail('Interactive and async do not operate together')
     else:
-        kexec = kubectl.execute
+        kexec = kubectl.call
+        if interactive:
+            kexec_args += ['-ti']
 
     remote_args = ['exec', command] + [pipes.quote(a) for a in arguments]
     remote_cmd = [shell, '-c', ' '.join(remote_args)]
 
-    for (name, namespace, containers) in each_pod(obj, ['name', 'namespace', 'containers']):
-        for con in containers:
-            if not fnmatch(con, container):
-                continue
-            args = ['[%s:%s] ' % (name, con)] if prefix else []
-            args += ['-n', namespace, '-c', con, name, '--'] + remote_cmd
-            kexec(*args)
+    for (name, namespace, con) in each_match(obj, container):
+        args = kexec_args
+        if prefix: args.append('[%s:%s] ' % (name, con))
+        args += ['-n', namespace, '-c', con, name, '--'] + remote_cmd
+        kexec(*args)
 
     if async:
         kubectl.wait()
@@ -248,18 +242,21 @@ def tail(obj, container, follow, number):
     if follow:
         log_args.append('-f')
 
-    # FIXME: DRY this up w/ execute loop (make iterator!)
-    for (name, namespace, containers) in each_pod(obj, ['name', 'namespace', 'containers']):
-        for con in containers:
-            if not fnmatch(con, container):
-                continue
-            prefix = '[%s:%s] ' % (name, con)
-            args = ['-n', namespace, '-c', con] + log_args + [name]
-            kubectl.logs_prefix(prefix, *args)
+    for (name, namespace, con) in each_match(obj, container):
+        prefix = '[%s:%s] ' % (name, con)
+        args = ['-n', namespace, '-c', con] + log_args + [name]
+        kubectl.call_prefix('logs', prefix, *args)
 
     kubectl.wait()
     if kubectl.final_rc != 0:
         click.get_current_context().exit(kubectl.final_rc)
+
+def each_match(obj, container):
+    for (name, namespace, containers) in each_pod(obj, ['name', 'namespace', 'containers']):
+        for con in containers:
+            if not fnmatch(con, container):
+                continue
+            yield(name, namespace, con)
 
 def each_pod(obj, columns):
     query = obj['query'] + '.[' + ','.join([COLUMN_MAP[c] for c in columns]) + ']'
@@ -268,13 +265,13 @@ def each_pod(obj, columns):
         yield pod
 
 @cli.command(context_settings=dict(ignore_unknown_options=True))
-@click.argument('resource')
+@click.argument('command')
 @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
 @click.pass_obj
-def get(obj, resource, arguments):
-    '''Get other resource info from current context'''
+def call(obj, command, arguments):
+    '''Generic proxy for any other kubectl request'''
     kubectl = obj['kubectl']
-    items = kubectl.get(resource, *arguments)['items']
+    items = kubectl.call_json(command, *arguments)['items']
     print tabulate(items, headers='keys')
 
 if __name__ == '__main__':
