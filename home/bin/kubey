@@ -120,6 +120,7 @@ class KubeCtl(object):
 ######################################################################
 
 ANY_NAMESPACE = '*'
+ALL_PODS = '*'
 ALL_CONTAINERS = '*'
 
 COLUMN_MAP = {
@@ -141,6 +142,10 @@ _logger = logging.getLogger(BN)
 
 # TODO: consider ability to use --context w/o needing to switch
 #       (be best if this can be saved in a configstruct!)
+
+# TODO: consider if this would be more useful to always require matcher arguments for namespace,
+# pod, container? like `kubey collab-production collab *`? and make them implicitly wrapped in
+# '*FOO*' unless a wildcard is provided? i.e. assume "contains" logic
 
 @click.group(context_settings=dict(help_option_names=['-h', '--help']))
 @click.option('-n', '--namespace', default=ANY_NAMESPACE, show_default=True,
@@ -179,6 +184,8 @@ def list(obj, columns):
     print tabulate(each_pod(obj, columns), headers=columns)
 
 @cli.command(context_settings=dict(ignore_unknown_options=True))
+@click.option('-n', '--name', default=ALL_PODS, show_default=True,
+              help='name of pod (supports wildcard "glob" matching)')
 @click.option('-c', '--container', default=ALL_CONTAINERS, show_default=True,
               help='name of container (supports wildcard "glob" matching)')
 @click.option('-s', '--shell', default='/bin/sh', show_default=True,
@@ -194,7 +201,7 @@ def list(obj, columns):
 @click.argument('command')
 @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
 @click.pass_obj
-def each(obj, container, shell, interactive, async, prefix, command, arguments):
+def each(obj, name, container, shell, interactive, async, prefix, command, arguments):
     '''Execute a command remotely for each pod matched.'''
 
     kubectl = obj['kubectl']
@@ -215,10 +222,10 @@ def each(obj, container, shell, interactive, async, prefix, command, arguments):
     remote_args = ['exec', command] + [pipes.quote(a) for a in arguments]
     remote_cmd = [shell, '-c', ' '.join(remote_args)]
 
-    for (name, namespace, con) in each_match(obj, container):
+    for (nm, namespace, con) in each_match(obj, name, container):
         args = kexec_args
-        if prefix: args.append('[%s:%s] ' % (name, con))
-        args += ['-n', namespace, '-c', con, name, '--'] + remote_cmd
+        if prefix: args.append('[%s:%s] ' % (nm, con))
+        args += ['-n', namespace, '-c', con, nm, '--'] + remote_cmd
         kexec(*args)
 
     if async:
@@ -228,13 +235,15 @@ def each(obj, container, shell, interactive, async, prefix, command, arguments):
         click.get_current_context().exit(kubectl.final_rc)
 
 @cli.command()
+@click.option('-n', '--name', default=ALL_PODS, show_default=True,
+              help='name of pod (supports wildcard "glob" matching)')
 @click.option('-c', '--container', default=ALL_CONTAINERS, show_default=True,
               help='name of container (supports wildcard "glob" matching)')
 @click.option('-f', '--follow', is_flag=True,
               help='stream new logs until interrupted')
 @click.argument('number', default=click.get_terminal_size()[1])
 @click.pass_obj
-def tail(obj, container, follow, number):
+def tail(obj, name, container, follow, number):
     '''Show recent logs from containers for each pod matched.'''
 
     kubectl = obj['kubectl']
@@ -242,21 +251,23 @@ def tail(obj, container, follow, number):
     if follow:
         log_args.append('-f')
 
-    for (name, namespace, con) in each_match(obj, container):
-        prefix = '[%s:%s] ' % (name, con)
-        args = ['-n', namespace, '-c', con] + log_args + [name]
+    for (nm, namespace, con) in each_match(obj, name, container):
+        prefix = '[%s:%s] ' % (nm, con)
+        args = ['-n', namespace, '-c', con] + log_args + [nm]
         kubectl.call_prefix('logs', prefix, *args)
 
     kubectl.wait()
     if kubectl.final_rc != 0:
         click.get_current_context().exit(kubectl.final_rc)
 
-def each_match(obj, container):
-    for (name, namespace, containers) in each_pod(obj, ['name', 'namespace', 'containers']):
+def each_match(obj, name, container):
+    for (nm, namespace, containers) in each_pod(obj, ['name', 'namespace', 'containers']):
+        if not fnmatch(nm, name):
+            continue
         for con in containers:
             if not fnmatch(con, container):
                 continue
-            yield(name, namespace, con)
+            yield(nm, namespace, con)
 
 def each_pod(obj, columns):
     query = obj['query'] + '.[' + ','.join([COLUMN_MAP[c] for c in columns]) + ']'

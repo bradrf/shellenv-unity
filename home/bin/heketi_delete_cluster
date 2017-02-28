@@ -1,0 +1,65 @@
+#!/bin/bash
+
+if [[ $# -lt 1 ]]; then
+    cat <<EOF >&2
+
+usage: $(basname "$0" .sh) <cluster_id> [ LIVE [ CONTINUE_ON_ERRORS ] ]
+
+  Default is to list actions. Add "LIVE" to run operations for real.
+
+EOF
+    exit 1
+fi
+
+if ! which jq >/dev/null 2>&1; then
+    echo 'Must install "jq" utility' >&2
+    exit 2
+fi
+
+CLUSTER_ID="$1"
+shift
+
+if [[ "$1" = 'LIVE' ]]; then
+    shift
+    function safe_heketi()
+    {
+        echo EXEC: heketi-cli "$@"
+        heketi-cli "$@"
+    }
+else
+    function safe_heketi()
+    {
+        echo DRYRUN: heketi-cli "$@"
+    }
+fi
+
+if [[ "$1" = 'CONTINUE_ON_ERRORS' ]]; then
+    echo '*** WARNING: ignoring errors ***' >&2
+else
+    set -e
+fi
+
+heketi-cli cluster info "$CLUSTER_ID"
+echo
+echo '----------------------------------------------------------------------'
+
+volumes=$(heketi-cli --json cluster info "$CLUSTER_ID" | jq -r '.volumes[]')
+if [[ -n "$volumes" ]]; then
+    echo '*** COWARDLY REFUSING TO REMOVE CLUSTER WITH VOLUMES ***' >&2
+    exit 3
+fi
+
+nodes=$(heketi-cli --json cluster info "$CLUSTER_ID" | jq -r '.nodes[]')
+for node in $nodes; do
+    echo "node: $node"
+    while read -r line; do
+        eval "$line"
+        echo "device: $name ($id)"
+        safe_heketi device delete "$id"
+    done < <(heketi-cli --json node info cdbbc628457a6141603bafeb4ab650d7 | \
+                 jq -r '.devices[] | "id="+.id+";name="+.name')
+    safe_heketi node delete "$node"
+    echo '--------------------'
+done
+
+safe_heketi cluster delete "$CLUSTER_ID"
