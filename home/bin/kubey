@@ -156,6 +156,14 @@ _logger = logging.getLogger(BN)
 @click.argument('container')
 @click.pass_context
 def cli(ctx, cache_seconds, log_level, namespace, pod, container):
+    '''Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous
+    commands.
+
+    NAMESPACE   provide a namespace restriction or an asterisk (*) to select all
+    POD         provide a regular expression to select one or more pods
+    CONTAINER   provide a regular expression to select one or more containers
+    '''
+
     _logger.level = getattr(logging, log_level.upper())
     kubectl = KubeCtl()
     pods_cache_fn = os.path.join(os.path.expanduser('~'), '.%s_%s_pods' % (BN, kubectl.context))
