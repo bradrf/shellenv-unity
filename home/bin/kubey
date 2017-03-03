@@ -164,9 +164,12 @@ logging.basicConfig(
 _logger = logging.getLogger(BN)
 
 
+def container_index_of(columns):
+    columns.index('containers') if 'containers' in columns else None
+
 def each_match(obj, columns=['namespace', 'name', 'containers']):
     highlight = sys.stdout.isatty()
-    container_index = columns.index('containers') if 'containers' in columns else None
+    container_index = container_index_of(columns)
     cols = ['name', 'containers'] + columns
     # FIXME: use set and indices map: {v: i for i, v enumerate(cols)}
     for pod in each_pod(obj, cols):
@@ -180,7 +183,7 @@ def each_match(obj, columns=['namespace', 'name', 'containers']):
             containers.append(Container(name, ready, state, highlight))
         if len(containers) < 1:
             continue
-        if container_index > -1:
+        if container_index:
             col_values[container_index] = containers
         yield(col_values)
 
@@ -247,8 +250,8 @@ def list_pods(obj, columns):
     '''List available pods and containers for current context.'''
     columns = [c.strip() for c in columns.split(',')]
     headers = [] if obj.no_headers else columns
-    container_index = columns.index('containers')
-    if container_index > -1:
+    container_index = container_index_of(columns)
+    if container_index:
         rows = []
         for row in each_match(obj, columns):
             items = []
