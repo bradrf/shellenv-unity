@@ -4,6 +4,7 @@ import sys
 import os
 import logging
 import re
+import string
 import subprocess
 import json
 import time
@@ -14,7 +15,10 @@ import jmespath
 from configstruct import OpenStruct
 from fnmatch import fnmatch
 from threading import Thread
-from tabulate import tabulate
+from tabulate import tabulate, tabulate_formats
+
+
+# CONSIDER: getting to container node directory? fog logs, etc? /var/lib/docker/containers/
 
 class Cache(object):
     def __init__(self, path, seconds, retriever, *retriever_args):
@@ -85,9 +89,12 @@ class KubeCtl(object):
         cl = self._commandline(cmd, *args)
         return self._check(cl, subprocess.call(cl))
 
+    def call_capture(self, cmd, *args):
+        cl = self._commandline(cmd, *args)
+        return subprocess.check_output(cl)
+
     def call_json(self, cmd, *args):
-        cl = self._commandline(cmd, '--output=json', *args)
-        return json.loads(subprocess.check_output(cl))
+        return json.loads(self.call_capture(cmd, '--output=json', *args))
 
     def call_async(self, cmd, *args):
         cl = self._commandline(cmd, *args)
@@ -119,11 +126,25 @@ class KubeCtl(object):
             _logger.warn('%s => exit status: %d' % (' '.join(cl), rc))
         return rc
 
+
+class Container(object):
+    def __init__(self, name, ready, state, highlight=False):
+        self.name = name
+        self.ready = ready
+        self.state = state
+        self._highlight = highlight
+
+    def __repr__(self):
+        if self.ready or not self._highlight:
+            rstr = self.ready
+        else:
+            rstr = '\033[30m\033[43m%s\033[0m' % (self.ready)
+        return 'name:%s ready:%s state:%s' % (self.name, rstr, json.dumps(self.state))
+
+
 ######################################################################
 
-ANY_NAMESPACE = '*'
-ALL_PODS = '*'
-ALL_CONTAINERS = '*'
+ANY_NAMESPACE = '.'
 
 COLUMN_MAP = {
     'name': 'metadata.name',
@@ -131,7 +152,7 @@ COLUMN_MAP = {
     'node': 'spec.nodeName',
     'node-ip': 'status.hostIP',
     'status': 'status.phase',
-    'containers': 'status.containerStatuses[*].name',
+    'containers': 'status.containerStatuses[*].[name,ready,state]',
 }
 
 BN = os.path.basename(__file__)
@@ -142,24 +163,55 @@ logging.basicConfig(
 )
 _logger = logging.getLogger(BN)
 
+
+def each_match(obj, columns=['namespace', 'name', 'containers']):
+    highlight = sys.stdout.isatty()
+    container_index = columns.index('containers') if 'containers' in columns else None
+    cols = ['name', 'containers'] + columns
+    # FIXME: use set and indices map: {v: i for i, v enumerate(cols)}
+    for pod in each_pod(obj, cols):
+        (pod_name, container_info), col_values = pod[:2], pod[2:] # FIXME: this is duplicating cols!
+        if not obj.pod_re.match(pod_name):
+            continue
+        containers = []
+        for (name, ready, state) in container_info:
+            if not obj.container_re.match(name):
+                continue
+            containers.append(Container(name, ready, state, highlight))
+        if len(containers) < 1:
+            continue
+        if container_index > -1:
+            col_values[container_index] = containers
+        yield(col_values)
+
+def each_pod(obj, columns):
+    query = obj.namespace_query + '.[' + ','.join([COLUMN_MAP[c] for c in columns]) + ']'
+    pods = obj.pods_cache.obj()
+    for pod in jmespath.search(query, pods):
+        yield pod
+
+
 # TODO: consider ability to use --context w/o needing to switch
 #       (be best if this can be saved in a configstruct!)
-
-@click.group(context_settings=dict(help_option_names=['-h', '--help']))
+@click.group(invoke_without_command=True, context_settings=dict(help_option_names=['-h', '--help']))
 @click.option('--cache-seconds', default=300, show_default=True,
               help='change number of seconds to keep pod info cached')
 @click.option('-l', '--log-level', default='info',
               type=click.Choice(['debug', 'info', 'warning', 'error', 'critical']),
               help='set logging level')
+@click.option('-f', '--format', 'table_format',
+              type=click.Choice(tabulate_formats), default='simple', show_default=True,
+              help='output format of tabular data (e.g. listing)')
+@click.option('--no-headers', is_flag=True, help='disable table headers')
 @click.argument('namespace')
 @click.argument('pod')
 @click.argument('container')
 @click.pass_context
-def cli(ctx, cache_seconds, log_level, namespace, pod, container):
+def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod, container):
     '''Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous
     commands.
 
-    NAMESPACE   provide a namespace restriction or an asterisk (*) to select all
+    NAMESPACE   provide a namespace restriction or a period to select all
     POD         provide a regular expression to select one or more pods
     CONTAINER   provide a regular expression to select one or more containers
     '''
@@ -175,22 +227,78 @@ def cli(ctx, cache_seconds, log_level, namespace, pod, container):
     else:
         query = 'items[?metadata.namespace==\'%s\']' % (namespace)
     ctx.obj = OpenStruct(
+        table_format=table_format,
+        no_headers=no_headers,
         kubectl=kubectl,
         pods_cache=pods_cache,
         namespace_query=query,
         pod_re=re.compile(pod, re.IGNORECASE),
         container_re=re.compile(container, re.IGNORECASE),
     )
+    if not ctx.invoked_subcommand:
+        ctx.invoke(list_pods)
 
-@cli.command()
+
+@cli.command(name='list')
 @click.option('-c', '--columns', default=','.join(COLUMN_MAP.keys()), show_default=True,
               help='specify specific columns to show')
 @click.pass_obj
-def list(obj, columns):
+def list_pods(obj, columns):
     '''List available pods and containers for current context.'''
-
     columns = [c.strip() for c in columns.split(',')]
-    print tabulate(each_match(obj, columns), headers=columns)
+    headers = [] if obj.no_headers else columns
+    container_index = columns.index('containers')
+    if container_index > -1:
+        rows = []
+        for row in each_match(obj, columns):
+            items = []
+            containers = []
+            for (i, item) in enumerate(row):
+                if i == container_index:
+                    containers = [str(c) for c in item]
+                else:
+                    items.append(item)
+            blank = ['' for i in items]
+            for i, container in enumerate(containers):
+                if i == 0:
+                    rows.append(items + [container])
+                else:
+                    rows.append(blank + [container])
+    else:
+        rows = each_match(obj, columns)
+    print tabulate(rows, headers=headers, tablefmt=obj.table_format)
+
+
+@cli.command()
+@click.pass_obj
+def webui(obj):
+    '''List dashboard links for matching pods. Three or fewer will be opened automatically.'''
+    ansi_escape = re.compile(r'\x1b[^m]*m')
+    info = ansi_escape.sub('', obj.kubectl.call_capture('cluster-info'))
+    dash_endpoint = re.search(r'kubernetes-dashboard.*?(http\S+)', info).group(1)
+    urls = []
+    for (namespace, pod_name, containers) in each_match(obj):
+        pod_path = '/#/pod/%s/%s?namespace=%s' % (namespace, pod_name, namespace)
+        urls.append(dash_endpoint + pod_path)
+    if len(urls) < 4:
+        for url in urls:
+            print url
+            click.launch(url)
+    else:
+        for url in urls:
+            print url
+
+
+# FIX TO allow "real" term in remote exec (pass along env?)
+
+@cli.command()
+@click.argument('repl')
+@click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
+@click.pass_context
+def repl(ctx, repl, arguments):
+    '''Start an interactive Read-Eval-Print Loop (REPL), e.g. bash, rails console, etc.'''
+    ctx.invoke(each, interactive=True, command=repl, arguments=arguments)
+
 
 @cli.command(context_settings=dict(ignore_unknown_options=True))
 @click.option('-s', '--shell', default='/bin/sh', show_default=True,
@@ -229,9 +337,12 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
 
     for (namespace, pod_name, containers) in each_match(obj):
         for container in containers:
+            if not container.ready:
+                _logger.warn('skipping ' + str(container))
+                continue
             args = kexec_args[:] # copy
-            if prefix: args.append('[%s:%s] ' % (pod_name, container))
-            args += ['-n', namespace, '-c', container, pod_name, '--'] + remote_cmd
+            if prefix: args.append('[%s:%s] ' % (pod_name, container.name))
+            args += ['-n', namespace, '-c', container.name, pod_name, '--'] + remote_cmd
             kexec(*args)
 
     if async:
@@ -240,51 +351,38 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
     if kubectl.final_rc != 0:
         click.get_current_context().exit(kubectl.final_rc)
 
+
 @cli.command()
 @click.option('-f', '--follow', is_flag=True,
               help='stream new logs until interrupted')
-@click.argument('number', default=click.get_terminal_size()[1])
+@click.option('-p', '--prefix', is_flag=True,
+              help='add a prefix to all output indicating the pod and container names')
+@click.argument('number', default=10)
 @click.pass_obj
-def tail(obj, follow, number):
+def tail(obj, follow, prefix, number):
     '''Show recent logs from containers for each pod matched.'''
 
     kubectl = obj['kubectl']
     log_args = ['--tail', str(number)]
+
     if follow:
         log_args.append('-f')
 
     for (namespace, pod_name, containers) in each_match(obj):
         for container in containers:
-            prefix = '[%s:%s] ' % (pod_name, container)
-            args = ['-n', namespace, '-c', container] + log_args + [pod_name]
-            kubectl.call_prefix('logs', prefix, *args)
+            if not container.ready:
+                _logger.warn('skipping ' + str(container))
+                continue
+            args = ['-n', namespace, '-c', container.name] + log_args + [pod_name]
+            if prefix:
+                prefix = '[%s:%s] ' % (pod_name, container.name)
+                kubectl.call_prefix('logs', prefix, *args)
+            else:
+                kubectl.call_async('logs', *args)
 
     kubectl.wait()
     if kubectl.final_rc != 0:
         click.get_current_context().exit(kubectl.final_rc)
-
-def each_match(obj, columns=['namespace', 'name', 'containers']):
-    container_index = columns.index('containers') if 'containers' in columns else None
-    cols = ['name', 'containers'] + columns
-    # FIXME: use set and indices map: {v: i for i, v enumerate(cols)}
-    for pod in each_pod(obj, cols):
-        (pod_name, containers), col_values = pod[:2], pod[2:] # FIXME: this is duplicating cols!
-        if not obj.pod_re.match(pod_name):
-            continue
-        matched_containers = [
-            container for container in containers if obj.container_re.match(container)
-        ]
-        if len(matched_containers) < 1:
-            continue
-        if container_index: # overwrite with only matched items
-            col_values[container_index] = matched_containers
-        yield(col_values)
-
-def each_pod(obj, columns):
-    query = obj.namespace_query + '.[' + ','.join([COLUMN_MAP[c] for c in columns]) + ']'
-    pods = obj.pods_cache.obj()
-    for pod in jmespath.search(query, pods):
-        yield pod
 
 @cli.command(context_settings=dict(ignore_unknown_options=True))
 @click.argument('command')
@@ -294,7 +392,9 @@ def call(obj, command, arguments):
     '''Generic proxy for any other kubectl request'''
     kubectl = obj['kubectl']
     items = kubectl.call_json(command, *arguments)['items']
-    print tabulate(items, headers='keys')
+    headers = [] if obj.no_headers else 'keys'
+    print tabulate(items, headers=headers, tablefmt=obj.table_format)
+
 
 if __name__ == '__main__':
     cli()

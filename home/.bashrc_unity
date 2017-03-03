@@ -520,3 +520,36 @@ function s3_remove_zero_byte_files()
     done
     echo "Removed ${total} of ${line_count} items from ${bucket}"
 }
+
+# TODO: support by node name (e.g. node-7, node-8, etc)
+function kssh()
+{
+    local namespace='collab-production'
+    local user='ubuntu'
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -n) shift; namespace="$1";;
+            -u) shift; user="$1";;
+            *)  break;;
+        esac
+        shift
+    done
+
+    if [[ $# -lt 2 ]]; then
+        echo 'usage: kssh [-n <namespace>] [-u <user>] <pod_name> <container> [<ssh_args> ...]' >&2
+        return 1
+    fi
+
+    local pod_name="$1"; shift
+    local container="$1"; shift
+
+    local node_ip
+    node_ip=($(kubey -f plain --no-headers "$namespace" "$pod_name" "$container" list -c node-ip))
+    if [[ ${#node_ip[@]} -ne 1 ]]; then
+        echo "Invalid node IP found: ${node_ip[*]}" >&2
+        return 2
+    fi
+
+    ssh "${user}@${node_ip}" "$@"
+}
