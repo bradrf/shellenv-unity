@@ -15,6 +15,7 @@ import jmespath
 from configstruct import OpenStruct
 from fnmatch import fnmatch
 from threading import Thread
+from collections import defaultdict
 from tabulate import tabulate, tabulate_formats
 
 
@@ -257,19 +258,7 @@ def list_pods(obj, columns):
     '''List available pods and containers for current context.'''
     columns = [c.strip() for c in columns.split(',')]
     headers = [] if obj.no_headers else columns
-    container_index = container_index_of(columns)
-    if container_index:
-        # add "child" rows if more than one container shown (better presentation in table)
-        child = [''] * (len(columns) - 1)
-        rows = []
-        for items in each_match(obj, columns):
-            containers = items.pop(container_index)
-            for i, container in enumerate(containers):
-                row = items if i == 0 else list(child) # copy
-                row.insert(container_index, container)
-                rows.append(row)
-    else:
-        rows = each_match(obj, columns)
+    rows = each_row(each_match(obj, columns), container_index_of(columns))
     print tabulate(rows, headers=headers, tablefmt=obj.table_format)
 
 
@@ -405,8 +394,9 @@ def call(obj, command, arguments):
 def health(obj):
     '''Show health stats about matches.'''
 
-    # a = s("items[?kind=='Node'].[metadata.name,status.addresses]", nodes); print a[0]
-    # [u'ip-172-26-4-156.us-west-1.compute.internal', [{u'type': u'InternalIP', u'address': u'172.26.4.156'}, {u'type': u'LegacyHostIP', u'address': u'172.26.4.156'}, {u'type': u'Hostname', u'address': u'ip-172-26-4-156'}]]
+    pods_selected = defaultdict(list)
+    for (node_name, pod_name) in each_pod(obj, ['node', 'name']):
+        pods_selected[node_name].append(pod_name)
 
     nodes_cache_fn = os.path.join(os.path.expanduser('~'),
                                   '.%s_%s_nodes' % (BN, obj.kubectl.context))
@@ -415,22 +405,40 @@ def health(obj):
     nodes_info = nodes_cache.obj()
 
     query = 'items[?kind==\'Node\'].[metadata.name,status.addresses[*].address]'
-    nodes = {}
+    addresses = {}
     for (name, addrs) in jmespath.search(query, nodes_info):
         addrs = [a for a in set(addrs) if a not in name]
-        nodes[name] = ' '.join(sorted(addrs))
+        addresses[name] = sorted(addrs)
 
     headers = None
     rows = []
     for line in obj.kubectl.call_capture('top', 'node').splitlines():
         columns = line.split()
         if headers == None:
-            headers = [] if obj.no_headers else columns + ['addresses']
+            headers = [] if obj.no_headers else columns + ['PODS', 'ADDRESSES']
             continue
-        columns.append(nodes[columns[0]])
-        rows.append(columns)
+        node_name = columns[0]
+        if node_name in pods_selected:
+            pod_names = pods_selected[node_name]
+            columns.extend([pod_names, addresses[node_name]])
+            rows.append(columns)
 
-    print tabulate(rows, headers=headers, tablefmt=obj.table_format)
+    print tabulate(each_row(rows, 5), headers=headers, tablefmt=obj.table_format)
+
+
+def each_row(rows, *enumerable_indices):
+    enumerable_indices = [i for i in enumerable_indices if i is not None]
+    for row in rows:
+        if len(enumerable_indices) < 1:
+            yield row
+            continue
+        for enumerable_index in enumerable_indices:
+            child_row = [''] * len(row)
+            children = row[enumerable_index]
+            for i, child in enumerate(children):
+                final_row = row if i == 0 else list(child_row) # copy
+                final_row[enumerable_index] = child
+                yield final_row
 
 
 ##########################
