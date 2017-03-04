@@ -117,7 +117,7 @@ class KubeCtl(object):
 
     def _commandline(self, command, *args):
         commandline = (self._kubectl, command) + args
-        _logger.debug(' '.join(commandline))
+        _logger.debug(' '.join([str(i) for i in commandline]))
         return commandline
 
     def _check(self, cl, rc):
@@ -135,10 +135,11 @@ class Container(object):
         self._highlight = highlight
 
     def __repr__(self):
-        if self.ready or not self._highlight:
-            rstr = self.ready
+        if self._highlight:
+            color = 'green' if self.ready else 'red'
+            rstr = click.style(str(self.ready), bold=True, fg=color)
         else:
-            rstr = '\033[30m\033[43m%s\033[0m' % (self.ready)
+            rstr = self.ready
         return 'name:%s ready:%s state:%s' % (self.name, rstr, json.dumps(self.state))
 
 
@@ -165,7 +166,7 @@ _logger = logging.getLogger(BN)
 
 
 def container_index_of(columns):
-    columns.index('containers') if 'containers' in columns else None
+    return columns.index('containers') if 'containers' in columns else None
 
 def each_match(obj, columns=['namespace', 'name', 'containers']):
     highlight = sys.stdout.isatty()
@@ -196,6 +197,7 @@ def each_pod(obj, columns):
 
 # TODO: consider ability to use --context w/o needing to switch
 #       (be best if this can be saved in a configstruct!)
+
 @click.group(invoke_without_command=True, context_settings=dict(help_option_names=['-h', '--help']))
 @click.option('--cache-seconds', default=300, show_default=True,
               help='change number of seconds to keep pod info cached')
@@ -207,13 +209,14 @@ def each_pod(obj, columns):
               help='output format of tabular data (e.g. listing)')
 @click.option('--no-headers', is_flag=True, help='disable table headers')
 @click.argument('namespace')
-@click.argument('pod')
-@click.argument('container')
+@click.argument('pod', default='.')
+@click.argument('container', default='.')
 @click.pass_context
 def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod, container):
     '''Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous
     commands.
 
+    \b
     NAMESPACE   provide a namespace restriction or a period to select all
     POD         provide a regular expression to select one or more pods
     CONTAINER   provide a regular expression to select one or more containers
@@ -224,12 +227,15 @@ def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod,
     pods_cache_fn = os.path.join(os.path.expanduser('~'), '.%s_%s_pods' % (BN, kubectl.context))
     pods_cache = Cache(pods_cache_fn, cache_seconds,
                        kubectl.call_json, 'get', 'pods', '--all-namespaces')
+
     # TODO: support glob matching?
     if namespace == ANY_NAMESPACE:
         query = 'items[*]'
     else:
         query = 'items[?metadata.namespace==\'%s\']' % (namespace)
+
     ctx.obj = OpenStruct(
+        cache_seconds=cache_seconds,
         table_format=table_format,
         no_headers=no_headers,
         kubectl=kubectl,
@@ -238,8 +244,9 @@ def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod,
         pod_re=re.compile(pod, re.IGNORECASE),
         container_re=re.compile(container, re.IGNORECASE),
     )
+
     if not ctx.invoked_subcommand:
-        ctx.invoke(list_pods)
+        ctx.invoke(list_pods)   # run default command to simply list matched pods
 
 
 @cli.command(name='list')
@@ -252,21 +259,15 @@ def list_pods(obj, columns):
     headers = [] if obj.no_headers else columns
     container_index = container_index_of(columns)
     if container_index:
+        # add "child" rows if more than one container shown (better presentation in table)
+        child = [''] * (len(columns) - 1)
         rows = []
-        for row in each_match(obj, columns):
-            items = []
-            containers = []
-            for (i, item) in enumerate(row):
-                if i == container_index:
-                    containers = [str(c) for c in item]
-                else:
-                    items.append(item)
-            blank = ['' for i in items]
+        for items in each_match(obj, columns):
+            containers = items.pop(container_index)
             for i, container in enumerate(containers):
-                if i == 0:
-                    rows.append(items + [container])
-                else:
-                    rows.append(blank + [container])
+                row = items if i == 0 else list(child) # copy
+                row.insert(container_index, container)
+                rows.append(row)
     else:
         rows = each_match(obj, columns)
     print tabulate(rows, headers=headers, tablefmt=obj.table_format)
@@ -276,8 +277,7 @@ def list_pods(obj, columns):
 @click.pass_obj
 def webui(obj):
     '''List dashboard links for matching pods. Three or fewer will be opened automatically.'''
-    ansi_escape = re.compile(r'\x1b[^m]*m')
-    info = ansi_escape.sub('', obj.kubectl.call_capture('cluster-info'))
+    info = click.unstyle(obj.kubectl.call_capture('cluster-info'))
     dash_endpoint = re.search(r'kubernetes-dashboard.*?(http\S+)', info).group(1)
     urls = []
     for (namespace, pod_name, containers) in each_match(obj):
@@ -343,7 +343,7 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
             if not container.ready:
                 _logger.warn('skipping ' + str(container))
                 continue
-            args = kexec_args[:] # copy
+            args = list(kexec_args) # copy
             if prefix: args.append('[%s:%s] ' % (pod_name, container.name))
             args += ['-n', namespace, '-c', container.name, pod_name, '--'] + remote_cmd
             kexec(*args)
@@ -387,6 +387,7 @@ def tail(obj, follow, prefix, number):
     if kubectl.final_rc != 0:
         click.get_current_context().exit(kubectl.final_rc)
 
+
 @cli.command(context_settings=dict(ignore_unknown_options=True))
 @click.argument('command')
 @click.argument('arguments', nargs=-1, type=click.UNPROCESSED)
@@ -399,5 +400,39 @@ def call(obj, command, arguments):
     print tabulate(items, headers=headers, tablefmt=obj.table_format)
 
 
+@cli.command()
+@click.pass_obj
+def health(obj):
+    '''Show health stats about matches.'''
+
+    # a = s("items[?kind=='Node'].[metadata.name,status.addresses]", nodes); print a[0]
+    # [u'ip-172-26-4-156.us-west-1.compute.internal', [{u'type': u'InternalIP', u'address': u'172.26.4.156'}, {u'type': u'LegacyHostIP', u'address': u'172.26.4.156'}, {u'type': u'Hostname', u'address': u'ip-172-26-4-156'}]]
+
+    nodes_cache_fn = os.path.join(os.path.expanduser('~'),
+                                  '.%s_%s_nodes' % (BN, obj.kubectl.context))
+    nodes_cache = Cache(nodes_cache_fn, obj.cache_seconds,
+                        obj.kubectl.call_json, 'get', 'nodes')
+    nodes_info = nodes_cache.obj()
+
+    query = 'items[?kind==\'Node\'].[metadata.name,status.addresses[*].address]'
+    nodes = {}
+    for (name, addrs) in jmespath.search(query, nodes_info):
+        addrs = [a for a in set(addrs) if a not in name]
+        nodes[name] = ' '.join(sorted(addrs))
+
+    headers = None
+    rows = []
+    for line in obj.kubectl.call_capture('top', 'node').splitlines():
+        columns = line.split()
+        if headers == None:
+            headers = [] if obj.no_headers else columns + ['addresses']
+            continue
+        columns.append(nodes[columns[0]])
+        rows.append(columns)
+
+    print tabulate(rows, headers=headers, tablefmt=obj.table_format)
+
+
+##########################
 if __name__ == '__main__':
     cli()
