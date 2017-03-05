@@ -166,6 +166,9 @@ logging.basicConfig(
 _logger = logging.getLogger(BN)
 
 
+def flatten(enumerable):
+    return ' '.join(str(i) for i in enumerable)
+
 def container_index_of(columns):
     return columns.index('containers') if 'containers' in columns else None
 
@@ -195,12 +198,19 @@ def each_pod(obj, columns):
     for pod in jmespath.search(query, pods):
         yield pod
 
-def each_row(rows, *enumerable_indices):
+def each_row(rows, flattener, *enumerable_indices):
     enumerable_indices = [i for i in enumerable_indices if i is not None]
     for row in rows:
         if not enumerable_indices:
             yield row
             continue
+
+        if flattener:
+            for i in enumerable_indices:
+                row[i] = flattener(row[i])
+            yield row
+            continue
+
         enumerables = {i: row[i] for i in enumerable_indices}
         final_row = row
         while True:
@@ -243,6 +253,10 @@ def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod,
     CONTAINER   provide a regular expression to select one or more containers
     '''
 
+    # FIXME: make this work for any defined command if it matches namespace,pod,container
+    if namespace == 'health':
+        namespace = '.'
+
     _logger.level = getattr(logging, log_level.upper())
     kubectl = KubeCtl()
     pods_cache_fn = os.path.join(os.path.expanduser('~'), '.%s_%s_pods' % (BN, kubectl.context))
@@ -273,12 +287,15 @@ def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod,
 @cli.command(name='list')
 @click.option('-c', '--columns', default=','.join(COLUMN_MAP.keys()), show_default=True,
               help='specify specific columns to show')
+@click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
-def list_pods(obj, columns):
+def list_pods(obj, columns, flat):
     '''List available pods and containers for current context.'''
+    # TODO: replace (extend?) node to be name instead of private ip now we have node info for health
     columns = [c.strip() for c in columns.split(',')]
+    flattener = flatten if flat else None
     headers = [] if obj.no_headers else columns
-    rows = each_row(each_match(obj, columns), container_index_of(columns))
+    rows = each_row(each_match(obj, columns), flattener, container_index_of(columns))
     print tabulate(rows, headers=headers, tablefmt=obj.table_format)
 
 
@@ -300,8 +317,6 @@ def webui(obj):
         for url in urls:
             print url
 
-
-# FIX TO allow "real" term in remote exec (pass along env?)
 
 @cli.command()
 @click.argument('repl')
@@ -343,8 +358,13 @@ def each(obj, shell, interactive, async, prefix, command, arguments):
         kexec = kubectl.call
         if interactive:
             kexec_args += ['-ti']
+            # FIXME: when https://github.com/docker/docker/issues/8755 is fixed, remove env/term?
+            #        for now, this allows for "fancy" terminal apps run in interactive mode
+            arguments = ['TERM=xterm', command]
+            command = 'env'
 
-    remote_args = ['exec', command] + [pipes.quote(a) for a in arguments]
+    # TODO: consider using "sh -c exec ..." only if command has no semicolon?
+    remote_args = [command] + [pipes.quote(a) for a in arguments]
     remote_cmd = [shell, '-c', ' '.join(remote_args)]
 
     for (namespace, pod_name, containers) in each_match(obj):
@@ -411,11 +431,15 @@ def call(obj, command, arguments):
 
 @cli.command()
 @click.option('-c', '--columns', default='', help='specify specific columns to show')
+@click.option('-f', '--flat', is_flag=True, help='flatten columns with multiple items')
 @click.pass_obj
-def health(obj, columns):
+def health(obj, columns, flat):
     '''Show health stats about matches.'''
 
+    # TODO: split this giant up!! use generators/enumerators!!
+
     columns = [c.strip() for c in columns.split(',')]
+    flattener = flatten if flat else None
 
     pods_selected = defaultdict(list)
     for (node_name, pod_name) in each_pod(obj, ['node', 'name']):
@@ -436,6 +460,8 @@ def health(obj, columns):
     headers = None
     selected_columns = None
     rows = []
+
+    # TODO: color pods not in ready state! (i.e. what you'd see as red in list)
 
     for line in obj.kubectl.call_capture('top', 'node').splitlines():
         info = line.split()
@@ -459,7 +485,7 @@ def health(obj, columns):
     if selected_columns:
         headers = [h for h in headers if headers.index(h) in selected_columns]
     enumerable_indices = [i for (i, h) in enumerate(headers) if h in ('PODS', 'ADDRESSES')]
-    print tabulate(each_row(rows, *enumerable_indices), headers=headers, tablefmt=obj.table_format)
+    print tabulate(each_row(rows, flattener, *enumerable_indices), headers=headers, tablefmt=obj.table_format)
 
 
 ##########################
