@@ -166,6 +166,12 @@ logging.basicConfig(
 _logger = logging.getLogger(BN)
 
 
+def cache(obj, name, *args):
+    cache_fn = os.path.join(os.path.expanduser('~'), '.%s_%s_%s' % (BN, obj.kubectl.context, name))
+    obj[name + '_cache'] = Cache(
+        cache_fn, obj.cache_seconds, obj.kubectl.call_json, 'get', name, *args
+    )
+
 def flatten(enumerable):
     return ' '.join(str(i) for i in enumerable)
 
@@ -258,10 +264,6 @@ def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod,
         namespace = '.'
 
     _logger.level = getattr(logging, log_level.upper())
-    kubectl = KubeCtl()
-    pods_cache_fn = os.path.join(os.path.expanduser('~'), '.%s_%s_pods' % (BN, kubectl.context))
-    pods_cache = Cache(pods_cache_fn, cache_seconds,
-                       kubectl.call_json, 'get', 'pods', '--all-namespaces')
 
     # TODO: support glob matching?
     if namespace == ANY_NAMESPACE:
@@ -273,12 +275,19 @@ def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod,
         cache_seconds=cache_seconds,
         table_format=table_format,
         no_headers=no_headers,
-        kubectl=kubectl,
-        pods_cache=pods_cache,
         namespace_query=query,
         pod_re=re.compile(pod, re.IGNORECASE),
         container_re=re.compile(container, re.IGNORECASE),
+        kubectl=KubeCtl(),
     )
+
+    cache(ctx.obj, 'namespaces')
+    cache(ctx.obj, 'nodes')
+    cache(ctx.obj, 'pods', '--all-namespaces')
+
+    query = 'items[?metadata.name==\'%s\'].status.phase' % (namespace)
+    if not jmespath.search(query, ctx.obj.namespaces_cache.obj()):
+        ctx.fail('Namespace not found')
 
     if not ctx.invoked_subcommand:
         ctx.invoke(list_pods)   # run default command to simply list matched pods
@@ -309,10 +318,10 @@ def webui(obj):
     for (namespace, pod_name, containers) in each_match(obj):
         pod_path = '/#/pod/%s/%s?namespace=%s' % (namespace, pod_name, namespace)
         urls.append(dash_endpoint + pod_path)
-    if len(urls) < 4:
-        for url in urls:
-            print url
-            click.launch(url)
+    if len(urls) == 1:
+        url = urls[0]
+        print url
+        click.launch(url)
     else:
         for url in urls:
             print url
@@ -445,23 +454,21 @@ def health(obj, columns, flat):
     for (node_name, pod_name) in each_pod(obj, ['node', 'name']):
         pods_selected[node_name].append(pod_name)
 
-    nodes_cache_fn = os.path.join(os.path.expanduser('~'),
-                                  '.%s_%s_nodes' % (BN, obj.kubectl.context))
-    nodes_cache = Cache(nodes_cache_fn, obj.cache_seconds,
-                        obj.kubectl.call_json, 'get', 'nodes')
-    nodes_info = nodes_cache.obj()
-
     query = 'items[?kind==\'Node\'].[metadata.name,status.addresses[*].address]'
+    nodes = obj.nodes_cach.obj()
     addresses = {}
-    for (name, addrs) in jmespath.search(query, nodes_info):
+    for (name, addrs) in jmespath.search(query, obj.nodes_cache.obj()):
         addrs = [a for a in set(addrs) if a not in name]
-        addresses[name] = sorted(addrs)
+        addresses[name] = sorted(addrs, reverse=True)
 
     headers = None
     selected_columns = None
     rows = []
 
+    # TODO: sort this output (seems to randomly change when running over again)
     # TODO: color pods not in ready state! (i.e. what you'd see as red in list)
+    # TODO: restriction of pods still shows everything on node:
+    #       kubey collab-production 'back|sqs' . health
 
     for line in obj.kubectl.call_capture('top', 'node').splitlines():
         info = line.split()
@@ -482,6 +489,7 @@ def health(obj, columns, flat):
                 info = [i for i in info if info.index(i) in selected_columns]
             rows.append(info)
 
+    rows = sorted(rows) # FIXME: should sort as we go
     if selected_columns:
         headers = [h for h in headers if headers.index(h) in selected_columns]
     enumerable_indices = [i for (i, h) in enumerate(headers) if h in ('PODS', 'ADDRESSES')]
