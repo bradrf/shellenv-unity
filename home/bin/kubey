@@ -269,7 +269,7 @@ def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod,
     if namespace == ANY_NAMESPACE:
         query = 'items[*]'
     else:
-        query = 'items[?metadata.namespace==\'%s\']' % (namespace)
+        query = 'items[?contains(metadata.namespace,\'%s\')]' % (namespace)
 
     ctx.obj = OpenStruct(
         cache_seconds=cache_seconds,
@@ -285,9 +285,10 @@ def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod,
     cache(ctx.obj, 'nodes')
     cache(ctx.obj, 'pods', '--all-namespaces')
 
-    query = 'items[?metadata.name==\'%s\'].status.phase' % (namespace)
-    if not jmespath.search(query, ctx.obj.namespaces_cache.obj()):
-        ctx.fail('Namespace not found')
+    if (namespace != ANY_NAMESPACE):
+        validation_query = 'items[?contains(metadata.name,\'%s\')].status.phase' % (namespace)
+        if not jmespath.search(validation_query, ctx.obj.namespaces_cache.obj()):
+            ctx.fail('Namespace not found')
 
     if not ctx.invoked_subcommand:
         ctx.invoke(list_pods)   # run default command to simply list matched pods
