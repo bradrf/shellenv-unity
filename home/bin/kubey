@@ -12,7 +12,7 @@ import pipes
 import click
 import jmespath
 
-from configstruct import OpenStruct, ConfigStruct
+from configstruct import OpenStruct
 from fnmatch import fnmatch
 from threading import Thread
 from collections import defaultdict
@@ -76,15 +76,19 @@ class BackgroundPopen(subprocess.Popen):
         Thread(target=self._proxy_lines, args=[self.stderr, err_handler]).start()
 
 class KubeCtl(object):
-    def __init__(self):
+    def __init__(self, context=None):
         self._kubectl = subprocess.check_output('which kubectl', shell=True).strip()
+        self._context = context
         self._processes = []
         self._threads = []
         self.final_rc = 0
 
     @property
     def context(self):
-        return subprocess.check_output(self._commandline('config', 'current-context')).strip()
+        if not self._context:
+            self._context = subprocess.check_output(
+                self._commandline('config', 'current-context')).strip()
+        return self._context
 
     def call(self, cmd, *args):
         cl = self._commandline(cmd, *args)
@@ -117,7 +121,11 @@ class KubeCtl(object):
         return self.final_rc
 
     def _commandline(self, command, *args):
-        commandline = (self._kubectl, command) + args
+        commandline = [self._kubectl]
+        if self._context:
+            commandline.extend(['--context', self._context])
+        commandline.append(command)
+        commandline.extend(args)
         _logger.debug(' '.join([str(i) for i in commandline]))
         return commandline
 
@@ -232,34 +240,22 @@ def each_row(rows, flattener, *enumerable_indices):
             final_row = [''] * len(row)
 
 
-# TODO: consider ability to use --context w/o needing to switch
-#       (be best if this can be saved in a configstruct!)
-
-_DEFAULTS = {
-    'cache_seconds': 300,
-    'namespace': 'production',
-    'table_format': 'simple',
-    'no_headers': False,
-}
-
 @click.group(invoke_without_command=True, context_settings=dict(help_option_names=['-h', '--help']))
-@click.option('-c', '--config-file', type=click.Path(dir_okay=False, writable=True),
-              default=os.path.join(os.path.expanduser('~'), '.' + BN + 'rc'),
-              help='Configuration file', show_default=True)
-@click.option('--cache-seconds', default=_DEFAULTS['cache_seconds'], show_default=True,
+@click.option('--cache-seconds', envvar='KUBEY_CACHE_SECONDS', default=300, show_default=True,
               help='change number of seconds to keep pod info cached')
-@click.option('-l', '--log-level', default='info',
-              type=click.Choice(['debug', 'info', 'warning', 'error', 'critical']),
-              help='set logging level')
-@click.option('-n', '--namespace', default=_DEFAULTS['namespace'], show_default=True,
-              help='namespace to use when selecting')
-@click.option('-f', '--format', 'table_format',
-              type=click.Choice(tabulate_formats), default=_DEFAULTS['table_format'],
+@click.option('-l', '--log-level',
+              type=click.Choice(('debug', 'info', 'warning', 'error', 'critical')),
+              default='info', help='set logging level')
+@click.option('-c', '--context', envvar='KUBEY_CONTEXT', help='context to use when selecting')
+@click.option('-n', '--namespace', envvar='KUBEY_NAMESPACE', default='production',
+              show_default=True, help='namespace to use when selecting')
+@click.option('-f', '--format', 'table_format', envvar='KUBEY_TABLE_FORMAT',
+              type=click.Choice(tabulate_formats), default='simple',
               show_default=True, help='output format of tabular data (e.g. listing)')
 @click.option('--no-headers', is_flag=True, help='disable table headers')
 @click.argument('match')
 @click.pass_context
-def cli(ctx, config_file, cache_seconds, log_level, namespace, table_format, no_headers, match):
+def cli(ctx, cache_seconds, log_level, context, namespace, table_format, no_headers, match):
     '''Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous
     commands (default is to list those that matched).
 
@@ -269,39 +265,33 @@ def cli(ctx, config_file, cache_seconds, log_level, namespace, table_format, no_
     CONTAINER   provide a regular expression to select one or more containers (optional)
     '''
 
-    config = ConfigStruct(config_file, 'options', options=_DEFAULTS)
-    opts = config.options
-
-    # let command line options have temporary precedence if provided values
-    opts.might_prefer(log_level=log_level, cache_seconds=cache_seconds,
-                      table_format=table_format, no_headers=no_headers)
-    config.configure_basic_logging(BN)
+    _logger.level = getattr(logging, log_level.upper())
 
     match_items = match.split('/', 1)
-    opts.pod = match_items.pop(0)
-    opts.container = match_items.pop(0) if len(match_items) > 0 else '.'
+    pod = match_items.pop(0)
+    container = match_items.pop(0) if len(match_items) > 0 else '.'
 
-    if opts.namespace == ANY_NAMESPACE:
+    if namespace == ANY_NAMESPACE:
         query = 'items[*]'
     else:
-        query = 'items[?contains(metadata.namespace,\'%s\')]' % (opts.namespace)
+        query = 'items[?contains(metadata.namespace,\'%s\')]' % (namespace)
 
     ctx.obj = OpenStruct(
         cache_seconds=cache_seconds,
         table_format=table_format,
         no_headers=no_headers,
         namespace_query=query,
-        pod_re=re.compile(opts.pod, re.IGNORECASE),
-        container_re=re.compile(opts.container, re.IGNORECASE),
-        kubectl=KubeCtl(),
+        pod_re=re.compile(pod, re.IGNORECASE),
+        container_re=re.compile(container, re.IGNORECASE),
+        kubectl=KubeCtl(context),
     )
 
     cache(ctx.obj, 'namespaces')
     cache(ctx.obj, 'nodes')
     cache(ctx.obj, 'pods', '--all-namespaces')
 
-    if (opts.namespace != ANY_NAMESPACE):
-        validation_query = 'items[?contains(metadata.name,\'%s\')].status.phase' % (opts.namespace)
+    if (namespace != ANY_NAMESPACE):
+        validation_query = 'items[?contains(metadata.name,\'%s\')].status.phase' % (namespace)
         if not jmespath.search(validation_query, ctx.obj.namespaces_cache.obj()):
             ctx.fail('Namespace not found')
 
