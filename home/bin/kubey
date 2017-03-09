@@ -12,7 +12,7 @@ import pipes
 import click
 import jmespath
 
-from configstruct import OpenStruct
+from configstruct import OpenStruct, ConfigStruct
 from fnmatch import fnmatch
 from threading import Thread
 from collections import defaultdict
@@ -235,49 +235,64 @@ def each_row(rows, flattener, *enumerable_indices):
 # TODO: consider ability to use --context w/o needing to switch
 #       (be best if this can be saved in a configstruct!)
 
+_DEFAULTS = {
+    'cache_seconds': 300,
+    'namespace': 'production',
+    'table_format': 'simple',
+    'no_headers': False,
+}
+
 @click.group(invoke_without_command=True, context_settings=dict(help_option_names=['-h', '--help']))
-@click.option('--cache-seconds', default=300, show_default=True,
+@click.option('-c', '--config-file', type=click.Path(dir_okay=False, writable=True),
+              default=os.path.join(os.path.expanduser('~'), '.' + BN + 'rc'),
+              help='Configuration file', show_default=True)
+@click.option('--cache-seconds', default=_DEFAULTS['cache_seconds'], show_default=True,
               help='change number of seconds to keep pod info cached')
 @click.option('-l', '--log-level', default='info',
               type=click.Choice(['debug', 'info', 'warning', 'error', 'critical']),
               help='set logging level')
+@click.option('-n', '--namespace', default=_DEFAULTS['namespace'], show_default=True,
+              help='namespace to use when selecting')
 @click.option('-f', '--format', 'table_format',
-              type=click.Choice(tabulate_formats), default='simple', show_default=True,
-              help='output format of tabular data (e.g. listing)')
+              type=click.Choice(tabulate_formats), default=_DEFAULTS['table_format'],
+              show_default=True, help='output format of tabular data (e.g. listing)')
 @click.option('--no-headers', is_flag=True, help='disable table headers')
-@click.argument('namespace')
-@click.argument('pod', default='.')
-@click.argument('container', default='.')
+@click.argument('match')
 @click.pass_context
-def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod, container):
+def cli(ctx, config_file, cache_seconds, log_level, namespace, table_format, no_headers, match):
     '''Simple wrapper to help find specific Kubernetes pods and containers and run asynchronous
-    commands.
+    commands (default is to list those that matched).
 
     \b
-    NAMESPACE   provide a namespace restriction or a period to select all
-    POD         provide a regular expression to select one or more pods
-    CONTAINER   provide a regular expression to select one or more containers
+    MATCH       <POD>[/<CONTAINER>]
+    POD         provide a regular expression to select one or more pods (optional)
+    CONTAINER   provide a regular expression to select one or more containers (optional)
     '''
 
-    # FIXME: make this work for any defined command if it matches namespace,pod,container
-    if namespace == 'health':
-        namespace = '.'
+    config = ConfigStruct(config_file, 'options', options=_DEFAULTS)
+    opts = config.options
 
-    _logger.level = getattr(logging, log_level.upper())
+    # let command line options have temporary precedence if provided values
+    opts.might_prefer(log_level=log_level, cache_seconds=cache_seconds,
+                      table_format=table_format, no_headers=no_headers)
+    config.configure_basic_logging(BN)
 
-    # TODO: support glob matching?
-    if namespace == ANY_NAMESPACE:
+    match_items = match.split('/', 1)
+    opts.pod = match_items.pop(0)
+    opts.container = match_items.pop(0) if len(match_items) > 0 else '.'
+
+    if opts.namespace == ANY_NAMESPACE:
         query = 'items[*]'
     else:
-        query = 'items[?contains(metadata.namespace,\'%s\')]' % (namespace)
+        query = 'items[?contains(metadata.namespace,\'%s\')]' % (opts.namespace)
 
     ctx.obj = OpenStruct(
         cache_seconds=cache_seconds,
         table_format=table_format,
         no_headers=no_headers,
         namespace_query=query,
-        pod_re=re.compile(pod, re.IGNORECASE),
-        container_re=re.compile(container, re.IGNORECASE),
+        pod_re=re.compile(opts.pod, re.IGNORECASE),
+        container_re=re.compile(opts.container, re.IGNORECASE),
         kubectl=KubeCtl(),
     )
 
@@ -285,13 +300,13 @@ def cli(ctx, cache_seconds, log_level, table_format, no_headers, namespace, pod,
     cache(ctx.obj, 'nodes')
     cache(ctx.obj, 'pods', '--all-namespaces')
 
-    if (namespace != ANY_NAMESPACE):
-        validation_query = 'items[?contains(metadata.name,\'%s\')].status.phase' % (namespace)
+    if (opts.namespace != ANY_NAMESPACE):
+        validation_query = 'items[?contains(metadata.name,\'%s\')].status.phase' % (opts.namespace)
         if not jmespath.search(validation_query, ctx.obj.namespaces_cache.obj()):
             ctx.fail('Namespace not found')
 
     if not ctx.invoked_subcommand:
-        ctx.invoke(list_pods)   # run default command to simply list matched pods
+        ctx.invoke(list_pods)
 
 
 @cli.command(name='list')
@@ -456,7 +471,7 @@ def health(obj, columns, flat):
         pods_selected[node_name].append(pod_name)
 
     query = 'items[?kind==\'Node\'].[metadata.name,status.addresses[*].address]'
-    nodes = obj.nodes_cach.obj()
+    nodes = obj.nodes_cache.obj()
     addresses = {}
     for (name, addrs) in jmespath.search(query, obj.nodes_cache.obj()):
         addrs = [a for a in set(addrs) if a not in name]
