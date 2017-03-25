@@ -521,6 +521,9 @@ function s3_remove_zero_byte_files()
     echo "Removed ${total} of ${line_count} items from ${bucket}"
 }
 
+# TODO: add helper to get currently env deployment tag and open URL to compare to master:
+# https://gitlab-prod1.eu-cph-1.unityops.net/cloudservices/collab-service/compare/20170314-Production...master
+
 # TODO: support by node name (e.g. node-7, node-8, etc)
 function kssh()
 {
