@@ -553,3 +553,15 @@ function kssh()
 
     ssh "${user}@${node_ip}" "$@"
 }
+
+function find_large_docker_logs()
+{
+    local size=${1:-5G}
+    local fn
+    echo
+    while read -r fn; do
+        find -L /var/log/containers -xtype l -samefile "$fn" -print0 | xargs -0 ls -l
+        ls -lh "$fn"
+        echo
+    done < <(find /var/lib/docker/containers -type f -size "+$size")
+}
