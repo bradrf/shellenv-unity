@@ -448,10 +448,10 @@ function beanstool()
     "$beanbin" "$@" --host="${BEANSTALKD_LISTEN_ADDR}:${BEANSTALKD_LISTEN_PORT}"
 }
 
-function capacity()
+function instances_needed()
 {
     if [ $# -lt 3 ]; then
-        echo 'usage: capacity <req_per_second> <ms_latency> <num_workers>' >&2
+        echo 'usage: instances_needed <req_per_second> <ms_latency> <num_workers>' >&2
         return 1
     fi
     calc "$1 / ((1000 / $2) * $3)"
@@ -460,7 +460,7 @@ function capacity()
 function workers_needed()
 {
     if [ $# -lt 3 ]; then
-        echo 'usage: workers_needed <req_per_second> <ms_latency> <capacity>' >&2
+        echo 'usage: workers_needed <req_per_second> <ms_latency> <instances>' >&2
         return 1
     fi
     calc "($1 / (1000 / $2)) / $3"
@@ -528,6 +528,7 @@ function s3_remove_zero_byte_files()
 function kssh()
 {
     local user='admin'
+    local namespace='production'
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -545,7 +546,8 @@ function kssh()
 
     local match="$1"; shift
     local node_ip
-    node_ip=($(kubey -f plain --no-headers "$match" list -c node-ip | sort -u))
+    node_ip=($(kubey -n "$namespace" -f plain --no-headers "$match" list -c host_ip | \
+                   cut -d' ' -f1 | sort -u))
     if [[ ${#node_ip[@]} -ne 1 ]]; then
         echo "Invalid node IP found: ${node_ip[*]}" >&2
         return 2
@@ -554,14 +556,12 @@ function kssh()
     ssh "${user}@${node_ip}" "$@"
 }
 
-function find_large_docker_logs()
+function clean_orphan_replicasets()
 {
-    local size=${1:-5G}
-    local fn
-    echo
-    while read -r fn; do
-        find -L /var/log/containers -xtype l -samefile "$fn" -print0 | xargs -0 ls -l
-        ls -lh "$fn"
-        echo
-    done < <(find /var/lib/docker/containers -type f -size "+$size")
+    if [[ $# -ne 1 ]]; then
+        echo 'usage: clean_orphan_replicasets <namespace>' >&2
+        return 1
+    fi
+    kubectl -n "$1" get replicasets | grep ' 0  *0  *0 ' | tee /dev/tty | awk '{print $1}' | \
+        xargs kubectl -n "$1" delete replicaset
 }

@@ -1,0 +1,86 @@
+#!/bin/bash
+
+function usage()
+{
+    BN=$(basename "$0" .sh)
+    cat <<EOF >&2
+usage: ${BN} search <name>
+       ${BN} list <full-name> <org>
+       ${BN} create <your-full-name> <new-user-full-name> <new-user-email> <org>
+EOF
+    exit 1
+}
+
+[[ $# -lt 1 ]] && usage
+CMD=$1; shift
+
+LDAP_HOST='ldap-master-2.eu-cph-1.unityops.net'
+DC='dc=unityops,dc=net'
+
+function er()
+{
+    echo "> $(printf '%q' "$@")"
+    "${@}"
+}
+
+function ee()
+{
+    echo "> $(printf '%q' "$@")"
+    exec "${@}"
+}
+
+if [[ "$CMD" = 'search' ]]; then
+    [[ $# -ne 1 ]] && usage
+    ee ldapsearch -h "$LDAP_HOST" -x -b "$DC" "(cn=*${1}*)"
+fi
+
+if [[ "$CMD" = 'list' ]]; then
+    [[ $# -ne 2 ]] && usage
+    CN=$1; shift
+    OU=$1; shift
+    ee ldapsearch -D "cn=${CN},ou=${OU},${DC}" -W -h "$LDAP_HOST" -b "$DC" '(objectClass=posixGroup)'
+fi
+
+if [[ "$CMD" != 'create' ]]; then
+    echo "unknown command: $CMD" >&2
+    exit 2
+fi
+
+[[ $# -ne 4 ]] && usage
+USER_CN=$1; shift
+NEW_CN=$1; shift
+NEW_EMAIL=$1; shift
+OU=$1; shift
+
+set -e
+
+first=$(echo "$NEW_CN" | cut -d' ' -f1)
+last=$(echo "$NEW_CN" | cut -d' ' -f2-)
+uid=$(echo "$NEW_EMAIL" | cut -d@ -f1 | tr '[:upper:]' '[:lower:]')
+pass=$(head -c 10 /dev/urandom | base64 | head -c 10)
+echo "password: $pass (https://opsportal.eu-cph-1.unityops.net/ldap)"
+
+cat <<EOF | tee /dev/tty > "${NEW_CN}.ldif"
+dn: cn=${NEW_CN},ou=${OU},${DC}
+changetype: add
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetorgPerson
+objectclass: posixAccount
+objectclass: ldapPublicKey
+objectclass: shadowAccount
+objectclass: inetUser
+uid: ${uid}
+givenName: ${first}
+sn: ${last}
+cn: ${NEW_CN}
+mail: ${NEW_EMAIL}
+sshPublicKey: none
+homeDirectory: /home/${uid}
+uidNumber: 0
+gidNumber: 0
+EOF
+
+er ldapmodify -D "cn=${USER_CN},ou=${OU},${DC}" -W -h "$LDAP_HOST" -f "${NEW_CN}.ldif"
+er ldappasswd -ZZ -D "cn=${USER_CN},ou=${OU},${DC}" -W -h "$LDAP_HOST" -s "$pass" "cn=${NEW_CN},ou=${OU},${DC}"
