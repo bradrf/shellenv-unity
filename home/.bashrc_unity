@@ -18,6 +18,11 @@ fi
 
 export HEKETI_CLI_SERVER='http://gluster-api.us-west-1.unityops.net:8080'
 
+if [[ -f "${HOME}/.ssh/id_github" ]]; then
+    export GH_SSH_KEY_PATH="${HOME}/.ssh/id_github"
+    export GH_SSH_KEY=$GH_SSH_KEY_PATH
+fi
+
 alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database unity_cloud_collab"; rake db:create db:migrate'
 alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
 alias list_editor_args='find Editor/Src -type f -name "*.cpp" -print0 | xargs -0 grep -F HasARGV'
