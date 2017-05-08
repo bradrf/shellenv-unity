@@ -7,6 +7,7 @@ function usage()
 usage: ${BN} search <name>
        ${BN} list <full-name> <org>
        ${BN} create <your-full-name> <new-user-full-name> <new-user-email> <org>
+       ${BN} group <your-full-name> <user-full-name> <group-name> <org>
 EOF
     exit 1
 }
@@ -41,6 +42,22 @@ if [[ "$CMD" = 'list' ]]; then
     ee ldapsearch -D "cn=${CN},ou=${OU},${DC}" -W -h "$LDAP_HOST" -b "$DC" '(objectClass=posixGroup)'
 fi
 
+if [[ "$CMD" = 'group' ]]; then
+    YOUR_FN=$1; shift
+    USER_FN=$1; shift
+    GROUP=$1; shift
+    ORG=$1; shift
+    group_fn="${USER_FN}_${GROUP}.ldif"
+    group_fn="${group_fn// /_}"
+    cat <<EOF | tee /dev/tty > "${group_fn}"
+dn: cn=${GROUP},ou=${ORG},${DC}
+changetype: modify
+add: uniqueMember
+uniqueMember: cn=${USER_FN},ou=${ORG},${DC}
+EOF
+    ee ldapmodify -D "cn=${YOUR_FN},ou=${ORG},${DC}" -W -h "${LDAP_HOST}" -f "${group_fn}"
+fi
+
 if [[ "$CMD" != 'create' ]]; then
     echo "unknown command: $CMD" >&2
     exit 2
@@ -58,7 +75,12 @@ first=$(echo "$NEW_CN" | cut -d' ' -f1)
 last=$(echo "$NEW_CN" | cut -d' ' -f2-)
 uid=$(echo "$NEW_EMAIL" | cut -d@ -f1 | tr '[:upper:]' '[:lower:]')
 pass=$(head -c 10 /dev/urandom | base64 | head -c 10)
-echo "password: $pass (https://opsportal.eu-cph-1.unityops.net/ldap)"
+
+cat <<EOF
+  user: ${uid}
+  pass: ${pass}
+change: https://opsportal.eu-cph-1.unityops.net/ldap
+EOF
 
 cat <<EOF | tee /dev/tty > "${NEW_CN}.ldif"
 dn: cn=${NEW_CN},ou=${OU},${DC}
