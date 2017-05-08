@@ -12,8 +12,11 @@ usage: ${BN} search <name>
 
   Examples:
 
-    * List all users matching "brad":
+    * Search for all users matching "brad":
       > eldapy search brad
+
+    * List all users in an Organziations:
+      > eldapy list 'Brad Robel-Forrest' Collaborate
 
     * Create a new user:
       > eldapy create 'Brad Robel-Forrest' 'Sophia Clarke' sophia@unity3d.com Collaborate
