@@ -4,10 +4,23 @@ function usage()
 {
     BN=$(basename "$0" .sh)
     cat <<EOF >&2
+
 usage: ${BN} search <name>
        ${BN} list <full-name> <org>
        ${BN} create <your-full-name> <new-user-full-name> <new-user-email> <org>
        ${BN} group <your-full-name> <user-full-name> <group-name> <org>
+
+  Examples:
+
+    * List all users matching "brad":
+      > eldapy search brad
+
+    * Create a new user:
+      > eldapy create 'Brad Robel-Forrest' 'Sophia Clarke' sophia@unity3d.com Collaborate
+
+    * Add an existing user to a group:
+      > eldapy group 'Brad Robel-Forrest' 'Brian Gershon' 'Collaborate Administrators' Collaborate
+
 EOF
     exit 1
 }
