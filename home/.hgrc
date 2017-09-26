@@ -11,8 +11,13 @@ transplant =
 progress =
 purge =
 strip =
-# if available (just works with TortoiseHg on windows - hard to configure on Mac):
-mercurial_keyring =
+# os x install in _THIS_ order (system, not user for pip!):
+#   > pip install keyring
+#   > pip show keyring
+#   > pip install mercurial_extension_utils
+#   > pip install mercurial_keyring
+#   > brew install mercurial
+# mercurial_keyring =
 dynapath = ~/work/dynapath/dynapath.py
 color =
 pager =
@@ -22,10 +27,9 @@ shelve=
 ono.schemes = https
 ono.prefix = ono.unity3d.com
 ono.username = brad
-lono.schemes = http
-#lono.prefix = 10.1.11.99
-lono.prefix = 10.1.17.29
-lono.username = brad
+seattle-mirror.schemes = https
+seattle-mirror.prefix = ono-proxy-seattle.hq.unity3d.com
+seattle-mirror.username = brad
 
 # [merge-tools]
 # emacs.args = -q --eval "(ediff-merge-with-ancestor \""$local"\" \""$other"\" \""$base"\" nil \""$output"\")"
@@ -49,7 +53,10 @@ pager = LESS='FRX' less
 # ignore = version, help, update
 
 [dynapath]
-#ipprefix = 10.1.11
-ipprefix = 10.1.17
-pathprefix = https://ono.unity3d.com/
-pathsubst = http://10.1.17.29/
+# Instructions posted here: https://ono-proxy-seattle.hq.unity3d.com/
+seattle-mirror.ipprefix = 10.1.17.0/22
+seattle-mirror.pathprefix = https://ono.unity3d.com/
+seattle-mirror.pathsubst = https://ono-proxy-seattle.hq.unity3d.com/
+
+[hostfingerprints]
+ono-proxy-seattle.hq.unity3d.com = 3b:5b:3d:33:0c:83:2e:16:c0:14:b3:94:d0:4e:30:f3:6c:d9:87:02

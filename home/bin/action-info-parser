@@ -2,10 +2,11 @@
 
 require 'json'
 
+BN = File.basename($0, '.rb')
 if ARGV.size < 1
   $stderr.puts <<EOF
 
-usage: #{File.basename $0, '.rb'} { <log_file> | - } [<count>]
+usage: #{BN} { <log_file> | - } [<count>]
 
    Use a single dash to read from standard input.
 
@@ -26,21 +27,23 @@ end
 
 logf = ARGV[0] == '-' ? $stdin : File.open(ARGV[0])
 count = (ARGV[1] || 1).to_i
+line_num = 0
 
 logf.each_line do |line|
+  line_num += 1
   line.include?('"action_info"') or next
-  i = line.index(' controller=') or next
+  i = line.index(':controller=') or next
   hdr = line.slice!(0, i)
-  other_info = ''
-  ai_str = nil
-  line.gsub(/ \w+=/) {|m| $/+m}.split($/).each do |kv|
-    if kv.start_with?(' params')
-      ai_str = kv
-    else
-      other_info << kv
-    end
+  begin
+    line.prepend('{')
+    other_info = eval(line)
+  rescue Exception => ex
+    fn = "#{BN}-eval-failure-#{$$}.line"
+    $stderr.puts("[#{fn}] #{ex.class} #{ex.message}: count=#{line_num} hdr=#{hdr}")
+    File.write(fn, line)
+    next
   end
-  params = eval(ai_str)
+  params = other_info[:params]
   action_info = JSON.load(params.delete('action_info'))
   data = action_info['data']
   counts = [:add_or_update,:move,:delete].inject({}){|h,s| h[s] = (data[s.to_s] || []).size; h}

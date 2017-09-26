@@ -244,6 +244,14 @@ function collab_rbtrace_master
     collab_exec rbtrace --ps="$(pgrep -f unicorn\ master)" -e "$@"
 }
 
+
+# each_worker?
+# > kubey -c usw1 -n staging collab/collab each -ap -- 'for p in `pgrep -f unicorn\ worker`; do echo $p; kill -QUIT $p; done; wait'
+
+# repl_first...
+# > kubey -c usw1 -n staging -m1 coll/coll repl bash
+
+
 # TODO: add helper for running this:
 # ueach -a -p production-collab-\\d+ -- 'sudo -u nobody bash -ic "/opt/unity/unity-collab-service/current/bin/bundle exec rbtrace -p \$(pgrep -f unicorn\ master) -e Rails.configuration.memcached_client"'
 
@@ -532,26 +540,26 @@ function s3_remove_zero_byte_files()
 # TODO: support by node name (e.g. node-7, node-8, etc)
 function kssh()
 {
-    local user='admin'
-    local namespace='production'
+    local user=$USER
+    local kubey_args
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -n) shift; namespace="$1";;
-            -u) shift; user="$1";;
+            -u) shift; user=$1;;
+            -k) shift; kubey_args=$1;;
             *)  break;;
         esac
         shift
     done
 
     if [[ $# -lt 1 ]]; then
-        echo 'usage: kssh [-u <user>] <match> [<ssh_args> ...]' >&2
+        echo 'usage: kssh [-u <user>] [-k <kubey_args>] <match> [<ssh_args> ...]' >&2
         return 1
     fi
 
-    local match="$1"; shift
+    local match=$1; shift
     local node_ip
-    node_ip=($(kubey -n "$namespace" -f plain --no-headers "$match" list -c host_ip | \
+    node_ip=($(kubey $kubey_args -f plain --no-headers "$match" list -c host_ip | \
                    cut -d' ' -f1 | sort -u))
     if [[ ${#node_ip[@]} -ne 1 ]]; then
         echo "Invalid node IP found: ${node_ip[*]}" >&2
@@ -561,12 +569,45 @@ function kssh()
     ssh "${user}@${node_ip}" "$@"
 }
 
+function ksshexec()
+{
+    :
+}
+
+function kforward()
+{
+    # > kubectl -n services-andy -o wide get services beanstalkd
+    # get service ip and use to ssh to private ip of host
+    # > ssh -o 'ControlPath none' -L 11300:100.65.6.123:11300 172.26.4.166
+    :
+}
+
 function clean_orphan_replicasets()
 {
-    if [[ $# -ne 1 ]]; then
-        echo 'usage: clean_orphan_replicasets <namespace>' >&2
+    local kargs=(-n "$1")
+    [[ $# -gt 1 ]] && kargs+=(--context "$2")
+    if [[ $# -lt 1 ]]; then
+        echo 'usage: clean_orphan_replicasets <namespace> [<context>]' >&2
         return 1
     fi
-    kubectl -n "$1" get replicasets | grep ' 0  *0  *0 ' | tee /dev/tty | awk '{print $1}' | \
+    kubectl "${kargs[@]}" get replicasets | grep ' 0  *0  *0 ' | tee /dev/tty | awk '{print $1}' | \
         xargs kubectl -n "$1" delete replicaset
+}
+
+function collab_deploy()
+{
+    #collab:867-temp-pr-616-617-24c931
+    if [[ $# -lt 2 ]]; then
+        echo 'usage: collab_deploy <env> <img> [<pods>...]' >&2
+        return 1
+    fi
+    local env=$1
+    local img=$2
+    local pods=${3:-oddjob backburner sqsprocessor collab}
+    local pod fullimg
+    for pod in $pods; do
+        echo "[$pod]"
+        fullimg="artifactory.eu-cph-1.unityops.net:5010/$pod:$img"
+        ./deploy_collab.sh --stable --image "$fullimg" apply "$env" "$pod" || break
+    done
 }

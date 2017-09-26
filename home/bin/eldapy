@@ -8,7 +8,8 @@ function usage()
 usage: ${BN} search <name>
        ${BN} list <full-name> <org>
        ${BN} create <your-full-name> <new-user-full-name> <new-user-email> <org>
-       ${BN} group <your-full-name> <user-full-name> <group-name> <org>
+       ${BN} group <your-full-name> <user-full-name> <your_group> <group-name> <group-org>
+       ${BN} modify <your-full-name> <user-full-name> <group-name> <key> <value> [<key> <value> ...]
 
   Examples:
 
@@ -22,7 +23,10 @@ usage: ${BN} search <name>
       > eldapy create 'Brad Robel-Forrest' 'Sophia Clarke' sophia@unity3d.com Collaborate
 
     * Add an existing user to a group:
-      > eldapy group 'Brad Robel-Forrest' 'Brian Gershon' 'Collaborate Administrators' Collaborate
+      > eldapy group 'Brad Robel-Forrest' 'Brian Gershon' Collaborate 'Collaborate Administrators' Collaborate
+
+    * Modify an attribute of a user:
+      > eldapy modify 'Brad Robel-Forrest' 'Rama Shenai' Collaborate sshPublicKey 'ssh-rsa AAAAB3Nza...'
 
 EOF
     exit 1
@@ -36,13 +40,13 @@ DC='dc=unityops,dc=net'
 
 function er()
 {
-    echo "> $(printf '%q' "$@")"
+    echo "> $(printf '%q ' "$@")"
     "${@}"
 }
 
 function ee()
 {
-    echo "> $(printf '%q' "$@")"
+    echo "> $(printf '%q ' "$@")"
     exec "${@}"
 }
 
@@ -61,17 +65,40 @@ fi
 if [[ "$CMD" = 'group' ]]; then
     YOUR_FN=$1; shift
     USER_FN=$1; shift
+    USER_ORG=$1; shift
     GROUP=$1; shift
-    ORG=$1; shift
+    GROUP_ORG=$1; shift
     group_fn="${USER_FN}_${GROUP}.ldif"
     group_fn="${group_fn// /_}"
     cat <<EOF | tee /dev/tty > "${group_fn}"
-dn: cn=${GROUP},ou=${ORG},${DC}
+dn: cn=${GROUP},ou=${GROUP_ORG},${DC}
 changetype: modify
 add: uniqueMember
-uniqueMember: cn=${USER_FN},ou=${ORG},${DC}
+uniqueMember: cn=${USER_FN},ou=${USER_ORG},${DC}
 EOF
-    ee ldapmodify -D "cn=${YOUR_FN},ou=${ORG},${DC}" -W -h "${LDAP_HOST}" -f "${group_fn}"
+    ee ldapmodify -D "cn=${YOUR_FN},ou=${USER_ORG},${DC}" -W -h "${LDAP_HOST}" -f "${group_fn}"
+fi
+
+if [[ "$CMD" = 'modify' ]]; then
+    YOUR_FN=$1; shift
+    USER_FN=$1; shift
+    ORG=$1; shift
+    modify_fn="${USER_FN}_modify.ldif"
+    modify_fn="${modify_fn// /_}"
+    echo
+    cat <<EOF | tee /dev/tty > "${modify_fn}"
+dn: cn=${USER_FN},ou=${ORG},${DC}
+changetype: modify
+EOF
+    while [[ $# -gt 1 ]]; do
+        k="$1"; shift
+        v="$1"; shift
+        cat <<EOF | tee /dev/tty >> "${modify_fn}"
+replace: $k
+$k: $v
+EOF
+    done
+    ee ldapmodify -D "cn=${YOUR_FN},ou=${ORG},${DC}" -W -h "${LDAP_HOST}" -f "${modify_fn}"
 fi
 
 if [[ "$CMD" != 'create' ]]; then
