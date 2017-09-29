@@ -368,7 +368,7 @@ function simplified_s3_log()
     fi
     cat "$@" | pipejoin $'\3' | awk -F$'\3' '$9 ~ /\// {
 sub(/\[/,"",$3); sub(/\]/,"",$4); gsub("/"," ",$9); split($8,a,".");
-print $3 $4, $5, a[2], $9, $11, $13, $(NF-1);
+print $3 $4, $5, a[2], $9, $10, $11, $13, $(NF-1);
 }'
 }
 

@@ -1,0 +1,110 @@
+#!/usr/bin/env python
+
+import sys
+import re
+import argparse
+import signal
+import json
+import collections
+
+# format: http://docs.aws.amazon.com/AmazonS3/latest/dev/LogFormat.html
+s3_log_re = re.compile(
+    r'(\S+) (\S+) \[(.*?)\] (\S+) (\S+) '
+    r'(\S+) (\S+) (\S+) (?:"([^"]+)"|-) '
+    r'(\S+) (\S+) (\S+) (\S+) (\S+) (\S+) '
+    r'(?:"([^"]+)"|-) (?:"([^"]+)"|-) (\S+)'
+)
+s3_log_keys = (
+    'bucket-owner', 'bucket', 'time', 'remote-ip', 'requester',
+    'request-id', 'operation', 'key', 'request-uri',
+    'http-status', 'error-code', 'bytes-sent', 'object-size', 'total-time', 'turn-around-time',
+    'referer', 'user-agent', 'version-id'
+)
+
+parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument('--separator', default=' ')
+for key in s3_log_keys:
+    parser.add_argument('--show-'+key, action='store_true')
+for key in s3_log_keys:
+    parser.add_argument('--map-'+key, nargs=1)
+for key in s3_log_keys:
+    parser.add_argument('--filter-'+key, nargs=1)
+args = parser.parse_args()
+
+show = []
+maps = {}
+fltr = {}
+for k, v in args.__dict__.items():
+    if not v:
+        continue
+    parts = k.split('_')
+    parts_key = '-'.join(parts[1:])
+    if parts[0] == 'show':
+        show.append(parts_key)
+    elif parts[0] == 'map':
+        maps[parts_key] = re.compile(v[0], re.IGNORECASE)
+    elif parts[0] == 'filter':
+        fltr[parts_key] = re.compile(v[0], re.IGNORECASE)
+
+if show:
+    unknown = set(show) - set(s3_log_keys)
+    if unknown:
+        print 'Unknown keys to show', unknown
+        exit(1)
+else:
+    args.show = s3_log_keys
+
+counter = collections.Counter()
+
+def stop(*_args):
+    if counter:
+        print '\n------------\nFinal Counts\n'
+        for k, v in counter.items():
+            print '%s: %d' % (k, v)
+    sys.exit(0)
+signal.signal(signal.SIGINT, stop)
+signal.signal(signal.SIGTERM, stop)
+
+try:
+    last_msg = None
+    for line in sys.stdin:
+        match = s3_log_re.match(line)
+        if not match:
+            raise ValueError(line)
+        if len(match.groups()) != 18:
+            print match.groups()
+        s3_log = []
+        filtered = False
+        for k, v in zip(s3_log_keys, match.groups()):
+            if k not in show:
+                continue
+            if v is None:  # not in capture group
+                v = '-'
+            if k in fltr and not fltr[k].search(v):
+                filtered = True
+                break
+            if k in maps:
+                m = maps[k].search(v)
+                if not m:
+                    raise ValueError(v)
+                if len(m.groups()) > 0:
+                    v = args.separator.join(m.groups())
+                else:
+                    v = v[m.start():m.end()]
+            s3_log.append(v)
+        if filtered:
+            continue
+        msg = args.separator.join(s3_log)
+        if 'time' in show:
+            lg = msg
+        else:
+            counter[msg] += 1
+            lg = '[%s] %s' % (match.group(3), msg)
+        if msg == last_msg:
+            sys.stdout.write('\r%s (%d times)' % (lg, counter[msg]))
+        else:
+            sys.stdout.write('\n'+lg)
+        sys.stdout.flush()
+        last_msg = msg
+except KeyboardInterrupt:
+    stop()
