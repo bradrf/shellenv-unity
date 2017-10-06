@@ -1,0 +1,169 @@
+#!/usr/bin/env python
+
+import sys
+import re
+import argparse
+import signal
+import collections
+
+
+def add_format_args(fmt, keys, subparser):
+    parser = subparser.add_parser(
+        fmt, help='process '+fmt+' formatted logs',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    for key in keys:
+        parser.add_argument('--show-'+key, action='store_true')
+    for key in keys:
+        parser.add_argument('--map-'+key, nargs=1)
+    for key in keys:
+        parser.add_argument('--filter-'+key, nargs=1)
+
+
+nsp = '(\S+)'
+qtd = '(?:"([^"]+)"|-)'
+
+formats = {
+    # http://docs.aws.amazon.com/AmazonS3/latest/dev/LogFormat.html
+    's3': collections.OrderedDict([
+        ('bucket-owner', nsp),
+        ('bucket', nsp),
+        ('time', '\[([^\]+)\]'),
+        ('remote-ip', nsp),
+        ('requester', nsp),
+        ('request-id', nsp),
+        ('operation', nsp),
+        ('key', nsp),
+        ('request-uri', qtd),
+        ('http-status', nsp),
+        ('error-code', nsp),
+        ('bytes-sent', nsp),
+        ('object-size', nsp),
+        ('total-time', nsp),
+        ('turn-around-time', nsp),
+        ('referer', qtd),
+        ('user-agent', qtd),
+        ('version-id', nsp),
+    ]),
+    # http://docs.aws.amazon.com/elasticloadbalancing/latest/classic/access-log-collection.html#access-log-entry-syntax
+    'elb': collections.OrderedDict([
+        ('timestamp', nsp),
+        ('elb', nsp),
+        ('client', nsp),
+        ('backend', nsp),
+        ('request-processing-time', nsp),
+        ('backend-processing-time', nsp),
+        ('response-processing-time', nsp),
+        ('elb-status-code', nsp),
+        ('backend-status-code', nsp),
+        ('received-bytes', nsp),
+        ('sent-bytes', nsp),
+        ('request', qtd),
+        ('user-agent', qtd),
+        ('ssl-cipher', nsp),
+        ('ssl-protocol', nsp),
+    ]),
+}
+
+parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument('--separator', default=' ')
+format_sub = parser.add_subparsers(dest='format')
+for (name, fmt) in formats.items():
+    add_format_args(name, fmt.keys(), format_sub)
+args = parser.parse_args()
+
+log_format = formats[args.format]
+log_keys = log_format.keys()
+log_re = re.compile(' '.join(log_format.values()))
+
+show = []
+maps = {}
+fltr = {}
+for k, v in args.__dict__.items():
+    if not v:
+        continue
+    parts = k.split('_')
+    parts_key = '-'.join(parts[1:])
+    if parts[0] == 'show':
+        show.append(parts_key)
+    elif parts[0] == 'map':
+        maps[parts_key] = re.compile(v[0], re.IGNORECASE)
+    elif parts[0] == 'filter':
+        fltr[parts_key] = re.compile(v[0], re.IGNORECASE)
+
+if show:
+    unknown = set(show) - set(log_keys)
+    if unknown:
+        print 'Unknown keys to show', unknown
+        exit(1)
+else:
+    show = log_keys
+
+use_counter = True
+for i in show:
+    if 'time' in i:
+        use_counter = False
+
+counter = collections.Counter()
+
+def sizeof_fmt(num):
+    if num < 1000:
+        return str(num)
+    for unit in ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z']:
+        if abs(num) < 1000.0:
+            return "%3.1f%s" % (num, unit)
+        num /= 1000.0
+    return '%.1f%s' % (num, 'Y')
+
+def stop(*_args):
+    if counter:
+        print '\n\n------------\nFinal Counts\n'
+        for k, v in sorted(counter.items(), key=lambda (k, v): v):
+            print '%7s: %s' % (sizeof_fmt(v), k)
+    sys.exit(0)
+signal.signal(signal.SIGINT, stop)
+signal.signal(signal.SIGTERM, stop)
+
+try:
+    last_msg = None
+    for line in sys.stdin:
+        match = log_re.match(line)
+        if not match:
+            sys.stderr.write('Failed to match '+log_re.pattern+'\n')
+            raise ValueError(line)
+        log_items = []
+        filtered = False
+        for k, v in zip(log_keys, match.groups()):
+            if k not in show:
+                continue
+            if v is None:  # not in capture group
+                v = '-'
+            if k in fltr and not fltr[k].search(v):
+                filtered = True
+                break
+            if k in maps:
+                m = maps[k].search(v)
+                if not m:
+                    raise ValueError(v)
+                if len(m.groups()) > 0:
+                    v = args.separator.join(m.groups())
+                else:
+                    v = v[m.start():m.end()]
+            log_items.append(v)
+        if filtered:
+            continue
+        msg = args.separator.join(log_items)
+        if use_counter:
+            counter[msg] += 1
+            lg = '[%s] %s' % (match.group(3), msg)
+        else:
+            lg = msg
+        if msg == last_msg:
+            sys.stdout.write('\r%s (%d times)' % (lg, counter[msg]))
+        else:
+            sys.stdout.write('\n'+lg)
+        sys.stdout.flush()
+        last_msg = msg
+except KeyboardInterrupt:
+    pass
+stop()
