@@ -28,7 +28,7 @@ formats = {
     's3': collections.OrderedDict([
         ('bucket-owner', nsp),
         ('bucket', nsp),
-        ('time', '\[([^\]+)\]'),
+        ('time', '\[([^\]]+)\]'),
         ('remote-ip', nsp),
         ('requester', nsp),
         ('request-id', nsp),

@@ -1,0 +1,140 @@
+#!/usr/bin/env ruby
+
+require 'ostruct'
+
+class ArchiveStateSynchronizer
+  def initialize(unarchive_email = nil, leaky_bucket = nil)
+    @unarchive_email = unarchive_email || 'brad+sync_au@unity3d.com'
+    @leaky_bucket = leaky_bucket
+    @core_service = Rails.configuration.core_service_api
+    @results = OpenStruct.new(
+      records: 0,
+      archives: 0,
+      unarchives: 0,
+      failures: [],
+      last_id: nil
+    )
+    def @results.as_report
+      rpt = to_h
+      std = rpt.delete(:started_at) and
+        rpt[:elapsed] = (Time.now - std).round(1)
+      rpt[:failures] = failures.size
+      rpt
+    end
+    def @results.report!
+      puts('', '', '-' * 80, as_report, '', '')
+    end
+  end
+
+  attr_reader :results
+
+  def sync_for(repo)
+    begin
+      archived = @core_service.project_get(project_id: repo.project_fk)['archived']
+    rescue UnityCloud::PersistentFaraday::Failure => ex
+      if ex.http_code == 404 && ex.context[:original_body]['message'] == 'Project archived'
+        archived = true
+      else
+        archived = ex
+      end
+    end
+    result = :ok
+    case archived
+    when false
+      if SourceObject.bucket.objects(prefix: repo.archived_objects.prefix).first.present?
+        UnarchiveStatusJob.perform_later(
+          repo, @unarchive_email, "#{Rails.env}/#{repo.project_fk}"
+        )
+        result = :unarchiving
+      end
+    when true
+      if SourceObject.bucket.objects(prefix: repo.source_objects.prefix).first.present?
+        ArchiveJob.perform_later(repo)
+        result = :archiving
+      end
+    else
+      result = archived
+    end
+    result
+  end
+
+  def sync!(offset = nil, limit = nil, unarchive_limit = nil, ignore_fails = false)
+    unarchive_limit ||= Float::INFINITY
+    stop = false
+    trap('SIGINT') { stop = true }
+    results.started_at = Time.now
+    Repo.find_each(start: offset, batch_size: limit) do |repo|
+      stop and
+        break
+      results.records += 1
+      result = sync_for(repo)
+      results.last_id = repo.id
+      case result
+      when :ok
+      # no-op
+      when :unarchiving
+        results.unarchives += 1
+      when :archiving
+        results.archives += 1
+      else
+        results.failures << [repo.project_fk, result]
+        ignore_fails || results.failures.size > 10 and
+          break
+      end
+      stop || results.unarchives >= unarchive_limit and
+        break
+      (results.records % 50).zero? and
+        results.report!
+      if @leaky_bucket
+        sleep(0.1) until @leaky_bucket.take?(1)
+      end
+    end
+  rescue Interrupt
+  ensure
+    results.stopped_at = Time.now
+  end
+end
+
+if __FILE__ == $0
+  args = OpenStruct.new
+  until ARGV.empty?
+    arg = ARGV.shift
+    case arg
+    when '--offset'
+      args.offset = ARGV.shift.to_i
+    when '--limit'
+      args.limit = ARGV.shift.to_i
+    when '--unarchive-limit'
+      args.unarchive_limit = ARGV.shift.to_i
+    when '--ignore-fails'
+      args.ignore_fails = true
+    when '--unarchive-email'
+      args.unarchive_email = ARGV.shift
+    when '--rate'
+      amt, unit = ARGV.shift.split('/')
+      amt = amt.to_i
+      unit = case unit
+             when 's' then 1.second
+             when 'm' then 1.minute
+             when 'h' then 1.hour
+             else
+               $stderr.puts 'unknown unit'
+               exit(2)
+             end
+      args.leaky_bucket = LeakyBucket.new(amt, unit)
+    when '--save'
+      args.save_file = ARGV.shift
+    else
+      $stderr.puts "unknown arg: #{arg}"
+      exit(1)
+    end
+  end
+  s = ArchiveStateSynchronizer.new(args.unarchive_email, args.leaky_bucket)
+  s.sync!(args.offset, args.limit, args.unarchive_limit, args.ignore_fails)
+  s.results.failures.each do |(guid, err)|
+    puts "#{guid}: #{err}"
+  end
+  s.results.report!
+  args.save_file and
+    File.open(args.save_file, 'a+') { |f| f.puts(s.results.as_report.to_json) }
+end

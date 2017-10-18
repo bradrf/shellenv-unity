@@ -572,11 +572,25 @@ function kssh()
 function krepl()
 {
     if [[ $# -lt 2 ]]; then
-        echo 'usage: krepl <namespace> <cmd> [<args...>]' >&2
+        echo 'usage: krepl <namespace>[/pod_match>] <cmd> [<args...>]' >&2
         return 1
     fi
-    local e=$1; shift
-    kubey -n "$e" -m1 odd/odd repl -- "$@"
+    local e m
+    if [[ "$1" == */* ]]; then
+        e=${1%%/*}
+        m=${1#*/}
+    else
+        e=$1
+        m='odd/odd'
+    fi
+    shift
+    case $e in
+        p*) e=production;;
+        s*) e=staging;;
+        a*) e=andy;;
+        *)  echo "unknown namespace: $e" >&2; return 2;;
+    esac
+    kubey -n "$e" -m1 "$m" repl -- "$@"
 }
 
 function ksshexec()
@@ -611,9 +625,10 @@ function collab_deploy()
         echo 'usage: collab_deploy <env> <img> [<pods>...]' >&2
         return 1
     fi
-    local env=$1
-    local img=$2
-    local pods=${3:-oddjob backburner sqsprocessor collab}
+    local env=$1; shift
+    local img=$1; shift
+    local pods="${*}"
+    [[ -z "$pods" ]] && pods='oddjob backburner sqsprocessor collab'
     local pod fullimg
     for pod in $pods; do
         echo "[$pod]"
@@ -661,4 +676,22 @@ function mysql-slave-status-monitor()
    prev=$1;
    count++;
 }'
+}
+
+function sync_au_loop()
+{
+    local info last_id next_id
+    while true; do
+        info=$(sed -n '${s/^.*"last_id":\([[:digit:]]*\).*$/last_id=\1/p;}' /tmp/sync_au.rpt)
+        [ $? -eq 0 ] || return
+        [ -n "$info" ] || return
+        eval "$info";
+        [ -n "$last_id" ] || return
+        next_id=`expr $last_id + 1`
+        echo "starting at $next_id"
+        bin/rails r /tmp/sync_au --offset "$next_id" --unarchive-limit 200 --rate 4/s --save /tmp/sync_au.rpt ||
+            return
+        echo resting
+        sleep 5
+    done
 }
