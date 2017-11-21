@@ -67,6 +67,7 @@ class ArchiveStateSynchronizer
       stop and
         break
       results.records += 1
+      [Rails, ActiveJob::Base].each { |k| k.logger.tags.empty? or k.logger.pop_tags(100) }
       result = sync_for(repo)
       results.last_id = repo.id
       case result
@@ -78,7 +79,7 @@ class ArchiveStateSynchronizer
         results.archives += 1
       else
         results.failures << [repo.project_fk, result]
-        ignore_fails || results.failures.size > 10 and
+        !ignore_fails && results.failures.size >= 10 and
           break
       end
       stop || results.unarchives >= unarchive_limit and

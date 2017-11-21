@@ -590,12 +590,49 @@ function krepl()
         a*) e=andy;;
         *)  echo "unknown namespace: $e" >&2; return 2;;
     esac
-    kubey -n "$e" -m1 "$m" repl -- "$@"
+    if [[ "$*" == 'rcs' ]]; then
+        kubey -n "$e" -m1 "$m" repl -- bin/rails c -s
+    elif [[ -n "$*" ]]; then
+        kubey -n "$e" -m1 "$m" repl -- "$@"
+    else
+        kubey -n "$e" -m1 "$m" repl -- bash
+    fi
 }
 
-function ksshexec()
+# report all internal node IPs
+function knodeips()
 {
-    :
+    local args
+    [[ -n "$1" ]] && args="--context $1"
+    kubectl $args get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}'
+}
+
+# run a command on each node async
+function keachnode()
+{
+    local cmd ip line
+    if [[ "$1" = '-c' ]]; then
+        shift; ctx=$1; shift
+    fi
+    cmd=$(shellwords "$@")
+    for ip in $(knodeips "$ctx"); do
+        ( ( ssh "$ip" $cmd | while read -r line; do printf '%-15s %s\n' "${ip}:" "${line}"; done ) & )
+    done
+    sleep 1
+    wait
+}
+
+# get uptimes for all nodes sorted by descending load (highest load at top)
+function kuptime()
+{
+    keachnode "$@" uptime | sort -rnk 11
+}
+
+# get memory usage for all nodes sorted by ascending free memory (smallest memory available at top)
+function kmem()
+{
+    printf '%15s %s\n' '[megabytes]' '             total       used       free     shared    buffers     cached'
+    keachnode "$@" sh -c 'free -m | grep ^Mem' | sort -nk 5
 }
 
 function kforward()
@@ -681,17 +718,65 @@ function mysql-slave-status-monitor()
 function sync_au_loop()
 {
     local info last_id next_id
+    [ -n "$1" ] && start_id=$1
     while true; do
-        info=$(sed -n '${s/^.*"last_id":\([[:digit:]]*\).*$/last_id=\1/p;}' /tmp/sync_au.rpt)
-        [ $? -eq 0 ] || return
-        [ -n "$info" ] || return
-        eval "$info";
+        if [ -n "$start_id" ]; then
+            last_id=$start_id
+            start_id=''
+        else
+            info=$(sed -n '${s/^.*"last_id":\([[:digit:]]*\).*$/last_id=\1/p;}' /tmp/sync_au.rpt)
+            [ $? -eq 0 ] || return
+            [ -n "$info" ] || return
+            eval "$info";
+        fi
         [ -n "$last_id" ] || return
         next_id=`expr $last_id + 1`
         echo "starting at $next_id"
-        bin/rails r /tmp/sync_au --offset "$next_id" --unarchive-limit 200 --rate 4/s --save /tmp/sync_au.rpt ||
+        bin/rails r /tmp/sync_au --offset "$next_id" --unarchive-limit 200 --rate 2/s --save /tmp/sync_au.rpt ||
             return
         echo resting
         sleep 5
+    done
+}
+
+function s3tail_collab()
+{
+    if [[ $# -lt 2 ]]; then
+        echo 's3tail_collab_store { s3 | elb [<region>] } <env> [<days_ago_start> [<days_ago_stop>]]' >&2
+        return 1
+    fi
+    local svc=$1; shift
+    if [[ "$svc" == elb ]]; then
+        local region
+        if [[ "$1" =~ '-' ]]; then
+            region=$1; shift
+        else
+            region='us-west-1'
+        fi
+    fi
+    local env
+    case "$1" in
+        p*) env=production;;
+        s*) env=staging;;
+        a*) env=andy;;
+        d*) env=development;;
+        *)
+            echo "Unknown env: $1" >&2
+            return 2
+    esac
+    shift
+    local day=${1-0}; shift
+    local end=${1-0}; shift
+    while [[ $day -ge $end ]]; do
+        date=$(daysago -u "${day}")
+        if [[ "$svc" == s3 ]]; then
+            s3tail "unitycloud-collab-logs/${env}/s3/collab-${env}-s3-access-${date}"
+        else
+            local path="unitycloud-elb-logs-${region}/production-collab/AWSLogs/096016851792/"
+            path+="elasticloadbalancing/${region}/"
+            path+=$(ruby -rtime -e "print Time.parse('${date}').strftime('%Y/%m/%d/')")
+            s3tail "$path"
+        fi
+        (( day-- ))
     done
 }

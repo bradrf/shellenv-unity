@@ -17,8 +17,8 @@ strip =
 #   > pip install mercurial_extension_utils
 #   > pip install mercurial_keyring
 #   > brew install mercurial
-# mercurial_keyring =
-# dynapath = ~/work/dynapath/dynapath.py
+mercurial_keyring =
+dynapath = ~/work/dynapath/dynapath.py
 color =
 pager =
 shelve=
@@ -27,9 +27,10 @@ shelve=
 ono.schemes = https
 ono.prefix = ono.unity3d.com
 ono.username = brad
-# seattle-mirror.schemes = http
-# seattle-mirror.prefix = ono-proxy-seattle.hq.unity3d.com
-# seattle-mirror.username = brad
+
+ono-proxy.schemes = https
+ono-proxy.prefix = ono-proxy-seattle.hq.unity3d.com
+ono-proxy.username = brad
 
 # [merge-tools]
 # emacs.args = -q --eval "(ediff-merge-with-ancestor \""$local"\" \""$other"\" \""$base"\" nil \""$output"\")"
@@ -52,10 +53,10 @@ diff.changed = white
 pager = LESS='FRX' less
 # ignore = version, help, update
 
-# [dynapath]
-# seattle-mirror.ipprefix = 10.1.17.0/22
-# seattle-mirror.pathprefix = https://ono.unity3d.com/
-# seattle-mirror.pathsubst = http://ono-proxy-seattle.hq.unity3d.com/
+[dynapath]
+seattle-mirror.ipprefix = 10.1.16.0/22
+seattle-mirror.pathprefix = https://ono.unity3d.com/
+seattle-mirror.pathsubst = https://ono-proxy-seattle.hq.unity3d.com/
 
-# [hostfingerprints]
-# ono-proxy-seattle.hq.unity3d.com = 3b:5b:3d:33:0c:83:2e:16:c0:14:b3:94:d0:4e:30:f3:6c:d9:87:02
+[hostfingerprints]
+ono-proxy-seattle.hq.unity3d.com = 3b:5b:3d:33:0c:83:2e:16:c0:14:b3:94:d0:4e:30:f3:6c:d9:87:02
