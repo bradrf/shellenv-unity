@@ -5,6 +5,7 @@ import re
 import argparse
 import signal
 import collections
+import json
 
 
 def add_format_args(fmt, keys, subparser):
@@ -12,6 +13,7 @@ def add_format_args(fmt, keys, subparser):
         fmt, help='process '+fmt+' formatted logs',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
+    parser.add_argument('--json', action='store_true')
     for key in keys:
         parser.add_argument('--show-'+key, action='store_true')
     for key in keys:
@@ -131,7 +133,7 @@ try:
         if not match:
             sys.stderr.write('Failed to match '+log_re.pattern+'\n')
             raise ValueError(line)
-        log_items = []
+        log_items = {} if args.json else []
         filtered = False
         for k, v in zip(log_keys, match.groups()):
             if k not in show:
@@ -149,10 +151,16 @@ try:
                     v = args.separator.join(m.groups())
                 else:
                     v = v[m.start():m.end()]
-            log_items.append(v)
+            if isinstance(log_items, dict):
+                log_items[k] = v
+            else:
+                log_items.append(v)
         if filtered:
             continue
-        msg = args.separator.join(log_items)
+        if args.json:
+            msg = json.dumps(log_items)
+        else:
+            msg = args.separator.join(log_items)
         if use_counter:
             counter[msg] += 1
             lg = '[%s] %s' % (match.group(3), msg)
@@ -166,4 +174,5 @@ try:
         last_msg = msg
 except KeyboardInterrupt:
     pass
+print
 stop()

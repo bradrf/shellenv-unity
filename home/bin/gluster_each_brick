@@ -1,0 +1,48 @@
+#!/bin/bash
+
+if [[ $# -lt 3 ]]; then
+    cat <<EOF >&2
+
+usage: $(basename "$0" .sh) <gluster_host> <volume> <cmd> [<cmd_option> ...]
+
+EOF
+    exit 1
+fi
+
+gluster_host=$1; shift
+volume=$1; shift
+
+cmd="sudo gluster volume info \"${volume}\" | awk '/^Brick[0-9]/{split(\$2,a,\":\");print \"host=\" a[1] \";path=\" a[2]}'"
+
+for line in $(ssh "$gluster_host" "$cmd"); do
+    eval "$line"
+    phost="${host%%.*}.private"
+    echo; echo "$phost $path"
+    ssh "$phost" "cd ${path} && sudo $@"
+done
+
+function volfor()
+{
+    local shard="${1:0:2}"
+    ls -1dt /mnt/repos/volume*/"${shard}/$1" | head -1
+}
+
+function git_repair_corrupted_packed_refs()
+{
+    [ $# -ne 1 ] && echo 'need UPID' >&2 && return 1
+    local upid=$1
+    local repo
+    local vol
+    repo=$(volfor "$upid")
+    vol=$(dirname "$(dirname "$repo")")
+    (
+        set -e
+        set -x
+        ( cd ~/ucs && bin/rails r "r=Repo.find_by_project_fk('$upid');p '-'*40, r, r.branches, '-'*40" )
+        git clone --bare "$repo" "$upid"
+        echo 'paste packed-refs'
+        cat - > "${upid}/packed-refs"
+        echo "revisions count: $(git -C "$upid" log --oneline | wc -l)"
+        echo "mv -vi $repo ${vol}/badrepos/ && cp -vr $upid $repo && git -C $repo log -3"
+    )
+}
