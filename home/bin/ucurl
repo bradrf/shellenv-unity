@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# REQUIREMENTS: must have at least Bash v4 and Python v2.7
+# REQUIREMENTS: Bash v4, Python v2.7
 
 VERSION='0.0.1'
 VERBOSE=false
@@ -54,8 +54,15 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
     list all of your orgs in the "dev" cloud environment:
       # ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/orgs
 
-    list all projects in the "bradandy" org:
-      # ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/orgs/bradandy/projects
+    list all unarchived projects in the "bradandy" org:
+      # ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/orgs/bradandy/projects | \\
+          awk -F\\" '/"name"/{n=\$4};/guid/{g=\$4};/archived.*false/{print g,n}'
+
+    archive a project:
+      # ucurl dev delete \\\${GENESIS_API_URL}/v1/core/api/orgs/bradandy/projects/95015c7a-b24b-4301-b2ae-844502f1cb7c
+
+    unarchive a project:
+      # ucurl dev put \\\${GENESIS_API_URL}/v1/core/api/orgs/bradandy/projects/95015c7a-b24b-4301-b2ae-844502f1cb7c/unarchive
 
     get the most recent revision from a project hosted in Collab:
       # ucurl -pretty dev get \\\${COLLAB}/api/projects/6086dd15-f6c1-4c7e-8411-34cc5183008b/branches/master/revisions\\?limit=1
@@ -123,7 +130,7 @@ function simple_curl() {
     [[ "${headers[@]}" =~ 'Content-Type:' ]] || headers+=('Content-Type: application/json')
     local rfn="$(mktemp /tmp/${BN}rsp.XXX)"
     local cargs=(-s -A "${BN} v${VERSION}" -w '%{http_code}' -o "${rfn}")
-    if $VERBOSE; then cargs+=(-v); else cargs+=(-qf); fi
+    $VERBOSE && cargs+=(-v)
     cargs+=(-X "$method")
     for hdr in "${headers[@]}"; do cargs+=(-H "$hdr"); done
     [[ -n "$body" ]] && cargs+=(--data-binary "$body")
@@ -204,10 +211,18 @@ eval "final_url=\"$URL\""       # interpolate the URL (e.g. if caller used a con
 [[ "${HEADERS[@]}" =~ 'Authorization:' ]] || HEADERS+=("Authorization: Bearer ${ACCESS_TOKEN}")
 simple_curl "$METHOD" "$final_url" "$BODY" "${HEADERS[@]}"
 
-if $PRETTY; then
+if [[ -z "$RESPONSE" ]]; then
+    echo "No body received. HTTP status code: ${CODE}" >&2
+elif $PRETTY; then
     echo "$RESPONSE" | python -mjson.tool
 elif $EVAL; then
     response_to_key_values
 else
     echo "$RESPONSE"
 fi
+
+lvl=$(( $CODE / 100 ))
+[[ $lvl -eq 2 ]] && exit
+
+echo "HTTP status code: ${CODE}" >&2
+exit $(( $lvl * 10 ))
