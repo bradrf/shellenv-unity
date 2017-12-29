@@ -1,9 +1,12 @@
 #!/bin/bash
 
+# REQUIREMENTS: must have at least Bash v4 and Python v2.7
+
 VERSION='0.0.1'
 VERBOSE=false
 HEADERS=()
 PRETTY=false
+EVAL=false
 
 while true; do
     case "$1" in
@@ -11,10 +14,16 @@ while true; do
         -H) shift; HEADERS+=($1);;
         -host) shift; HEADERS+=("Host: $1");;
         -pretty) PRETTY=true;;
+        -eval) EVAL=true;;
         *) break;;
     esac
     shift
 done
+
+if $PRETTY && $EVAL; then
+    echo 'Can not use both -pretty and -eval for output' >&2
+    exit 5
+fi
 
 BN="$(basename "$0" .sh)"
 if [[ $# -lt 3 ]]; then
@@ -22,12 +31,14 @@ if [[ $# -lt 3 ]]; then
 
 usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
 
-  VERSION: ${VERSION}
+  ${BN} (v${VERSION}) is a tool to always provide fresh credentials when interacting with Unity HTTP APIs
 
   OPTIONS:
-    -v       verbose
-    -H       custom header (default Content-Type is application/json)
-    -host    host header value (otherwise uses host from <url>)
+    -v           enable verbose output (show HTTP headers, etc.)
+    -H           custom header (default Content-Type is application/json)
+    -host <val>  host header value (otherwise uses host from <url>)
+    -pretty      write JSON nicely formatted (does not work w/ -eval)
+    -eval        write JSON response as evaluable shell key/value pairs (does not work w/ -pretty)
 
   ENV:       l[ocal] | d[ev] | s[taging] | p[roduction]
 
@@ -35,19 +46,28 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
 
   URL:       provide a full URL -- may contain keys from the ENV config retrieved
 
+  BODY:      provide the value sent using curl's data-binary option (assumes JSON format)
+  FILE:      provide a filename to read and send using curl's data-binary option (assumes JSON content)
+
   EXAMPLES:
 
     list all of your orgs in the "dev" cloud environment:
-      > ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/orgs
+      # ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/orgs
 
     list all projects in the "bradandy" org:
-      > ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/orgs/bradandy/projects
+      # ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/orgs/bradandy/projects
 
     get the most recent revision from a project hosted in Collab:
-      > ucurl -pretty dev get \\\${COLLAB}/api/projects/6086dd15-f6c1-4c7e-8411-34cc5183008b/branches/master/revisions\\?limit=1
+      # ucurl -pretty dev get \\\${COLLAB}/api/projects/6086dd15-f6c1-4c7e-8411-34cc5183008b/branches/master/revisions\\?limit=1
+
+    get a list of all file entries for a Collab project:
+      # ucurl -pretty dev get \\\${COLLAB}/api/projects/6086dd15-f6c1-4c7e-8411-34cc5183008b/branches/master/revisions/HEAD/entries\?recurse
 
     get a signed URL from Collab for an MD5 file for uploading:
-      > ucurl dev post \\\${COLLAB}/api/projects/6086dd15-f6c1-4c7e-8411-34cc5183008b/uploads '{"files":["2c087aca87fe65bb31d6e15835965712"]}'
+      # ucurl dev post \\\${COLLAB}/api/projects/6086dd15-f6c1-4c7e-8411-34cc5183008b/uploads '{"files":["2c087aca87fe65bb31d6e15835965712"]}'
+
+    display detail health from Collab service:
+      # ucurl -pretty dev get \\\${COLLAB}/api/health\?include=memory,raindrops
 
 EOF
     exit 1
@@ -124,10 +144,14 @@ EOF
     fi
 }
 
-function eval_response() {
-    eval "$(echo "$RESPONSE" | \
+function response_to_key_values() {
+    echo "$RESPONSE" | \
 python -c 'import sys,json,re; \
-print ";".join("%s=\"%s\"" % (re.sub(r"[\W_]+","_",k.upper()),v) for (k,v) in json.load(sys.stdin).items())')"
+print ";".join("%s=\"%s\"" % (re.sub(r"[\W_]+","_",k.upper()),v) for (k,v) in json.load(sys.stdin).items())'
+}
+
+function eval_response() {
+    eval "$(response_to_key_values)"
 }
 
 function get_access_token() {
@@ -182,6 +206,8 @@ simple_curl "$METHOD" "$final_url" "$BODY" "${HEADERS[@]}"
 
 if $PRETTY; then
     echo "$RESPONSE" | python -mjson.tool
+elif $EVAL; then
+    response_to_key_values
 else
     echo "$RESPONSE"
 fi
