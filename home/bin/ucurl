@@ -31,7 +31,7 @@ if [[ $# -lt 3 ]]; then
 
 usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
 
-  ${BN} (v${VERSION}) is a tool to always provide fresh credentials when interacting with Unity HTTP APIs
+  ${BN} (v${VERSION}) is a tool to automatically handle authentication and URL selection when working with Unity HTTP APIs
 
   OPTIONS:
     -v           enable verbose output (show HTTP headers, etc.)
@@ -45,6 +45,7 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
   METHOD:    g[et] | po[st] | pu[t] | d[elete]
 
   URL:       provide a full URL -- may contain keys from the ENV config retrieved
+             (use a value of "config" to simply dump the set of key/values used for <env>)
 
   BODY:      provide the value sent using curl's data-binary option (assumes JSON format)
   FILE:      provide a filename to read and send using curl's data-binary option (assumes JSON content)
@@ -199,17 +200,22 @@ function get_access_token() {
 cloudrc="${HOME}/.cloud${CLOUD_ENV}rc"
 if [[ -r "$cloudrc" ]]; then
     RESPONSE="$(cat "$cloudrc")"
+    CODE=200
 else
     simple_curl GET "https://public-cdn.cloud.unity3d.com/config/${CLOUD_ENV}"
     echo "$RESPONSE" > "$cloudrc"
 fi
 
-eval_response                   # loads config keys as interpolation variables
-get_access_token                # login to genesis
-eval "final_url=\"$URL\""       # interpolate the URL (e.g. if caller used a config key)
+if [[ "$URL" = 'config' ]]; then
+    PRETTY=true
+else
+    eval_response               # loads config keys as interpolation variables
+    get_access_token            # login to genesis
+    eval "final_url=\"$URL\""   # interpolate the URL (e.g. if caller used a config key)
 
-[[ "${HEADERS[@]}" =~ 'Authorization:' ]] || HEADERS+=("Authorization: Bearer ${ACCESS_TOKEN}")
-simple_curl "$METHOD" "$final_url" "$BODY" "${HEADERS[@]}"
+    [[ "${HEADERS[@]}" =~ 'Authorization:' ]] || HEADERS+=("Authorization: Bearer ${ACCESS_TOKEN}")
+    simple_curl "$METHOD" "$final_url" "$BODY" "${HEADERS[@]}"
+fi
 
 if [[ -z "$RESPONSE" ]]; then
     echo "No body received. HTTP status code: ${CODE}" >&2
