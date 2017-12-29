@@ -129,7 +129,7 @@ function simple_curl() {
 
     [[ "${headers[@]}" =~ 'Content-Type:' ]] || headers+=('Content-Type: application/json')
     local rfn="$(mktemp /tmp/${BN}rsp.XXX)"
-    local cargs=(-s -A "${BN} v${VERSION}" -w '%{http_code}' -o "${rfn}")
+    local cargs=(-s -A "${BN}/${VERSION}" -w '%{http_code}' -o "${rfn}")
     $VERBOSE && cargs+=(-v)
     cargs+=(-X "$method")
     for hdr in "${headers[@]}"; do cargs+=(-H "$hdr"); done
