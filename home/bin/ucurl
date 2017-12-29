@@ -12,7 +12,7 @@ while true; do
     case "$1" in
         -v) VERBOSE=true;;
         -H) shift; HEADERS+=($1);;
-        -host) shift; HEADERS+=("Host: $1");;
+        -host) shift; HOST_OVERRIDE=$1;;
         -pretty) PRETTY=true;;
         -eval) EVAL=true;;
         *) break;;
@@ -35,8 +35,8 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
 
   OPTIONS:
     -v           enable verbose output (show HTTP headers, etc.)
-    -H           custom header (default Content-Type is application/json)
-    -host <val>  host header value (otherwise uses host from <url>)
+    -H           add a custom header (can be used multiple times)
+    -host <val>  host header value (otherwise uses host from <url>; can be a variable name)
     -pretty      write JSON nicely formatted (does not work w/ -eval)
     -eval        write JSON response as evaluable shell key/value pairs (does not work w/ -pretty)
 
@@ -45,7 +45,7 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
   METHOD:    g[et] | po[st] | pu[t] | d[elete]
 
   URL:       provide a full URL -- may contain keys from the ENV config retrieved
-             (use a value of "config" to simply dump the set of key/values used for <env>)
+             (use a value of "config" to dump the set of key/values available in <env>)
 
   BODY:      provide the value sent using curl's data-binary option (assumes JSON format)
   FILE:      provide a filename to read and send using curl's data-binary option (assumes JSON content)
@@ -76,6 +76,9 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
 
     display detail health from Collab service:
       # ucurl -pretty dev get \\\${COLLAB}/api/health\?include=memory,raindrops
+
+    force use of alternate region:
+      # ucurl -v -host \$COLLAB prod get https://kong-prod-euc1-public.cloud.unity3d.com/api/health
 
 EOF
     exit 1
@@ -210,6 +213,12 @@ if [[ "$URL" = 'config' ]]; then
     PRETTY=true
 else
     eval_response               # loads config keys as interpolation variables
+
+    if [[ -n "$HOST_OVERRIDE" ]]; then
+        final_host="$(eval echo \"${HOST_OVERRIDE}\" | awk -F/ '{print $3}')" # strip out host if a URI
+        HEADERS+=(-H "Host: ${final_host}")
+    fi
+
     get_access_token            # login to genesis
     eval "final_url=\"$URL\""   # interpolate the URL (e.g. if caller used a config key)
 
@@ -230,5 +239,5 @@ fi
 lvl=$(( $CODE / 100 ))
 [[ $lvl -eq 2 ]] && exit
 
-echo "HTTP status code: ${CODE}" >&2
+[[ -n "$RESPONSE" ]] && echo "HTTP status code: ${CODE}" >&2
 exit $(( $lvl * 10 ))
