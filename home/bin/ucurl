@@ -37,8 +37,17 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
 
   EXAMPLES:
 
-    list all projects in the "bradandy" org of the "dev" cloud environment:
-      > ucurl dev get https://api-int.unity.com/v1/core/api/orgs/bradandy/projects
+    list all of your orgs in the "dev" cloud environment:
+      > ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/orgs
+
+    list all projects in the "bradandy" org:
+      > ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/orgs/bradandy/projects
+
+    get the most recent revision from a project hosted in Collab:
+      > ucurl -pretty dev get \\\${COLLAB}/api/projects/6086dd15-f6c1-4c7e-8411-34cc5183008b/branches/master/revisions\\?limit=1
+
+    get a signed URL from Collab for an MD5 file for uploading:
+      > ucurl dev post \\\${COLLAB}/api/projects/6086dd15-f6c1-4c7e-8411-34cc5183008b/uploads '{"files":["2c087aca87fe65bb31d6e15835965712"]}'
 
 EOF
     exit 1
@@ -68,7 +77,7 @@ shift
 
 URL="$1"; shift
 
-if [[ $# -gt 1 ]]; then
+if [[ $# -gt 0 ]]; then
     if [[ -f "$1" ]]; then
         BODY="@$1"
     else
@@ -106,9 +115,10 @@ function simple_curl() {
 
     if [[ $res -ne 0 ]]; then
         cat <<EOF >&2
-FAILED: curl$(printf ' %q' "${cargs[@]}") '$url'
-CODE: ${CODE}
-RESPONSE: ${RESPONSE}
+FAILED:      curl$(printf ' %q' "${cargs[@]}") '$url'
+CURL STATUS: ${res}
+HTTP CODE:   ${CODE}
+HTTP BODY:   ${RESPONSE}
 EOF
         exit 4
     fi
