@@ -728,8 +728,11 @@ function check_consul_available()
         return 1
     fi
     local of="/tmp/consul_available_${1}_${2}.log"
-    ktrace "-c $1 -n collab-$2 collab/collab" '[Process.pid,RuntimeConfig.consul_available?]' | tee "$of"
-    echo "Saved output to $of"
+    ktrace "-c $1 -n collab-$2 collab/collab" '[Process.pid,RuntimeConfig.consul_available?]' | \
+        tee "$of" | highlight false
+    local cnt
+    cnt=$(grep -cF false "$of")
+    echo "Saved output to $of (found ${cnt} false entries)"
 }
 
 # # https://www.percona.com/blog/2012/08/29/heres-a-quick-way-to-foresee-if-replication-slave-is-ever-going-to-catch-up-and-when/
@@ -804,12 +807,10 @@ function s3tail_collab()
         return 1
     fi
     local svc=$1; shift
+    local region='us-west-1'
     if [[ "$svc" == elb ]]; then
-        local region
         if [[ "$1" =~ '-' ]]; then
             region=$1; shift
-        else
-            region='us-west-1'
         fi
     fi
     local env
@@ -838,4 +839,30 @@ function s3tail_collab()
         fi
         (( day-- ))
     done
+}
+
+#declare -A newmap
+#newmap[name]="Irfan Zulfiqar"
+#newmap[designation]=SSE
+#newmap[company]="My Own Company"
+
+function s3ls_region()
+{
+    if [[ $# -lt 2 ]]; then
+        echo 's3tail_region { d[ev] | s[taging] | p[roduction] } { all | usw1 | usw1cc | euc1 | apse1 | sae1 }' >&2
+        return 1
+    fi
+    local env region
+    case "$1" in
+        d*) env=dev;;
+        s*) env=staging;;
+        p*) env=production;;
+        *)
+            echo "Unknown environment: $1" >&2
+            return 2;;
+    esac
+    case "$2" in
+        all)
+    esac
+
 }
