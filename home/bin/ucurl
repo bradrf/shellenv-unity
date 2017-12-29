@@ -1,16 +1,16 @@
 #!/bin/bash
 
-# TODO: FILTER OUT ACCESS TOKEN
-
 VERSION='0.0.1'
 VERBOSE=false
 HEADERS=()
+PRETTY=false
 
 while true; do
     case "$1" in
         -v) VERBOSE=true;;
         -H) shift; HEADERS+=($1);;
         -host) shift; HEADERS+=("Host: $1");;
+        -pretty) PRETTY=true;;
         *) break;;
     esac
     shift
@@ -29,27 +29,26 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
     -H       custom header (default Content-Type is application/json)
     -host    host header value (otherwise uses host from <url>)
 
-  ENV:       d[ev] | s[taging] | p[roduction]
+  ENV:       l[ocal] | d[ev] | s[taging] | p[roduction]
 
   METHOD:    g[et] | po[st] | pu[t] | d[elete]
+
+  URL:       provide a full URL -- may contain keys from the ENV config retrieved
+
+  EXAMPLES:
+
+    list all projects in the "bradandy" org of the "dev" cloud environment:
+      > ucurl dev get https://api-int.unity.com/v1/core/api/orgs/bradandy/projects
 
 EOF
     exit 1
 fi
 
 case "$1" in
-    d*)
-        CLOUD_ENV=dev
-        CORE=andy-core
-        ;;
-    s*)
-        CLOUD_ENV=staging
-        CORE=staging-core
-        ;;
-    p*)
-        CLOUD_ENV=production
-        CORE=core
-        ;;
+    l*) CLOUD_ENV=local;;
+    d*) CLOUD_ENV=dev;;
+    s*) CLOUD_ENV=staging;;
+    p*) CLOUD_ENV=production;;
     *)
         echo "Unknown environment: $1" >&2
         exit 2
@@ -116,7 +115,9 @@ EOF
 }
 
 function eval_response() {
-    eval "$(echo "$RESPONSE" | ruby -rjson -e 'puts JSON.parse($stdin.read).map{|k,v|%{#{k.upcase}="#{v}";}}')"
+    eval "$(echo "$RESPONSE" | \
+python -c 'import sys,json,re; \
+print ";".join("%s=\"%s\"" % (re.sub(r"[\W_]+","_",k.upper()),v) for (k,v) in json.load(sys.stdin).items())')"
 }
 
 function get_access_token() {
@@ -142,7 +143,7 @@ function get_access_token() {
             body='{"grant_type":"password","username":"'"${email}"'","password":"'"${pass}"'"}'
         fi
 
-        simple_curl POST "https://${CORE}.cloud.unity3d.com/api/login" "$body"
+        simple_curl POST "${GENESIS_API_URL}/v1/core/api/login" "$body"
         debug "$RESPONSE"
         eval_response
 
@@ -152,8 +153,25 @@ function get_access_token() {
     fi
 }
 
-get_access_token
+######################################################################
+
+cloudrc="${HOME}/.cloud${CLOUD_ENV}rc"
+if [[ -r "$cloudrc" ]]; then
+    RESPONSE="$(cat "$cloudrc")"
+else
+    simple_curl GET "https://public-cdn.cloud.unity3d.com/config/${CLOUD_ENV}"
+    echo "$RESPONSE" > "$cloudrc"
+fi
+
+eval_response                   # loads config keys as interpolation variables
+get_access_token                # login to genesis
+eval "final_url=\"$URL\""       # interpolate the URL (e.g. if caller used a config key)
 
 [[ "${HEADERS[@]}" =~ 'Authorization:' ]] || HEADERS+=("Authorization: Bearer ${ACCESS_TOKEN}")
-simple_curl "$METHOD" "$URL" "$BODY" "${HEADERS[@]}"
-echo "$RESPONSE"
+simple_curl "$METHOD" "$final_url" "$BODY" "${HEADERS[@]}"
+
+if $PRETTY; then
+    echo "$RESPONSE" | python -mjson.tool
+else
+    echo "$RESPONSE"
+fi
