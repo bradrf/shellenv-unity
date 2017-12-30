@@ -38,23 +38,23 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
   ${BN} (v${VERSION}) is a tool to automatically handle authentication and URL selection when working with Unity HTTP APIs
 
   OPTIONS:
-    -v           enable verbose output (show HTTP headers, etc.)
-    -H           add a custom header (can be used multiple times)
-    -host <val>  host header value (otherwise uses host from <url>; can be a variable name)
-    -follow      follow 302 redirects using the indicated Location header
-    -pretty      write JSON nicely formatted (does not work w/ -eval)
-    -eval        write JSON response as evaluable shell key/value pairs (does not work w/ -pretty)
-    -save <file> write response to <file>
+    -v             enable verbose output (show HTTP headers, etc.)
+    -H             add a custom header (can be used multiple times)
+    -host <val>    host header value (otherwise uses host from <url>; can be a variable name)
+    -follow        follow 302 redirects using the indicated Location header
+    -pretty        write JSON nicely formatted (does not work w/ -eval)
+    -eval          write JSON response as evaluable shell key/value pairs (does not work w/ -pretty)
+    -save <file>   write response to <file>
 
-  ENV:       l[ocal] | d[ev] | s[taging] | p[roduction]
+  ENV:      l[ocal] | d[ev] | s[taging] | p[roduction]
 
-  METHOD:    g[et] | po[st] | pu[t] | d[elete]
+  METHOD:   g[et] | po[st] | pu[t] | d[elete]
 
-  URL:       provide a full URL -- may contain keys from the <env> config retrieved
-             (use a value of "config" to dump the set of key/values available in <env>)
+  URL:      provide a full URL -- may contain keys from the <env> config retrieved
+            (use a value of "config" to dump the set of key/values available in <env>)
 
-  BODY:      provide the value sent using curl's data-binary option (assumes JSON format)
-  FILE:      provide a filename to read and send using curl's data-binary option (detects content type)
+  BODY:     provide the value sent using curl's data-binary option (assumes JSON format)
+  FILE:     provide a filename to read and send using curl's data-binary option (detects content type)
 
   EXAMPLES:
 
@@ -85,6 +85,9 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
 
     force use of alternate region:
       # ucurl -v -host \\\$COLLAB prod get https://kong-prod-euc1-public.cloud.unity3d.com/api/health
+
+    download a file from Collab:
+      # ucurl -save myfancyfile -follow dev get \\\${COLLAB}/api/projects/6086dd15-f6c1-4c7e-8411-34cc5183008b/cache/source/2c087aca87fe65bb31d6e15835965712
 
 EOF
     exit 1
