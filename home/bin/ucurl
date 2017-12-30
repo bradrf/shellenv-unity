@@ -2,11 +2,13 @@
 
 # REQUIREMENTS: bash v4, python v2.7
 
-VERSION='0.0.1'
+VERSION='0.1.0'
 VERBOSE=false
 HEADERS=()
 PRETTY=false
 EVAL=false
+FOLLOW=false
+SAVE=''
 
 while true; do
     case "$1" in
@@ -15,6 +17,8 @@ while true; do
         -host) shift; HOST_OVERRIDE=$1;;
         -pretty) PRETTY=true;;
         -eval) EVAL=true;;
+        -follow) FOLLOW=true;;
+        -save) shift; SAVE=$1;;
         *) break;;
     esac
     shift
@@ -37,8 +41,10 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
     -v           enable verbose output (show HTTP headers, etc.)
     -H           add a custom header (can be used multiple times)
     -host <val>  host header value (otherwise uses host from <url>; can be a variable name)
+    -follow      follow 302 redirects using the indicated Location header
     -pretty      write JSON nicely formatted (does not work w/ -eval)
     -eval        write JSON response as evaluable shell key/value pairs (does not work w/ -pretty)
+    -save <file> write response to <file>
 
   ENV:       l[ocal] | d[ev] | s[taging] | p[roduction]
 
@@ -126,24 +132,35 @@ umask 0077 # protect files like the user credentials cache to be accessible only
 
 ######################################################################
 
-function debug() {
-    $VERBOSE && echo "$*" >&2
-}
-
 function simple_curl() {
+    unset CODE LOCATION RESPONSE
+
     local expect
     if [[ "$1" = '-expect' ]]; then
         shift; expect=$1; shift
     fi
 
+    local save
+    if [[ "$1" = '-save' ]]; then
+        shift; save=$1; shift
+    fi
+
     local method=$1; shift
     local url=$1; shift
     local body=$1; shift
-    local headers=("$@")
 
+    local headers=("$@")
     [[ "${headers[@]}" =~ 'Content-Type:' ]] || headers+=('Content-Type: application/json')
-    local rfn="$(mktemp /tmp/${BN}rsp.XXX)"
-    local cargs=(-A "${BN}/${VERSION}" -w '%{http_code}' -o "${rfn}")
+
+    local hfn="$(mktemp /tmp/${BN}hfn.XXX)"
+    local rfn
+    if [[ -n "$save" ]]; then
+        rfn=$save
+    else
+        rfn="$(mktemp /tmp/${BN}rsp.XXX)"
+    fi
+
+    local cargs=(-A "${BN}/${VERSION}" -D "${hfn}" -o "${rfn}")
     $VERBOSE && cargs+=(-v)
     cargs+=(-X "$method")
     for hdr in "${headers[@]}"; do cargs+=(-H "$hdr"); done
@@ -152,19 +169,23 @@ function simple_curl() {
     [[ $BODY_SIZE -lt 10485760 ]] && cargs+=(-s) # keep silent for small uploads
 
     if $VERBOSE; then
-        CODE="$(curl "${cargs[@]}" "$url" 2> >(sed 's/Bearer .*$/Bearer [REDACTED]/' >&2))"
+        curl "${cargs[@]}" "$url" 2> >(sed 's/Bearer .*$/Bearer [REDACTED]/' >&2)
     else
-        CODE="$(curl "${cargs[@]}" "$url")"
+        curl "${cargs[@]}" "$url"
+    fi
+    local res=$?
+
+    eval "$(awk 'NR==1{sub("\r","",$2);print "CODE="$2};/^Location:/{sub("\r","",$2);print "LOCATION=\""$2"\""}' "$hfn")"
+    rm -f "$hfn"
+
+    if [[ -z "$save" ]]; then
+        RESPONSE="$(cat "$rfn")"
+        rm -f "$rfn"
     fi
 
     [[ -n "$expect" ]] || expect=$CODE
-
-    local res=$?
-    RESPONSE="$(cat "$rfn")"
-    rm -f "$rfn"
-
     if [[ $res -ne 0 ]] || [[ $CODE -ne $expect ]]; then
-        $VERBOSE && echo "FAILED:      curl$(printf ' %q' "${cargs[@]}") '$url'"
+        $VERBOSE && echo "FAILED:      curl$(printf ' %q' "${cargs[@]}") '$url'" >&2
         cat <<EOF >&2
 CURL STATUS: ${res}
 HTTP CODE:   ${CODE}
@@ -208,7 +229,7 @@ function get_access_token() {
         fi
 
         simple_curl -expect 200 POST "${GENESIS_API_URL}/v1/core/api/login" "$body"
-        debug "$RESPONSE"
+        $VERBOSE && echo "$RESPONSE" >&2
         eval_response
 
         EXPIRES_AT=$(( $(date +%s) + $EXPIRES_IN - 30 ))
@@ -231,21 +252,31 @@ fi
 if [[ "$URL" = 'config' ]]; then
     PRETTY=true
 else
-    eval_response               # loads config keys as interpolation variables
+    eval_response           # loads config keys as interpolation variables
 
     if [[ -n "$HOST_OVERRIDE" ]]; then
         final_host="$(eval echo \"${HOST_OVERRIDE}\" | awk -F/ '{print $3}')" # strip out host if a URI
         HEADERS+=("Host: ${final_host}")
     fi
 
-    get_access_token            # login to genesis
-    eval "final_url=\"$URL\""   # interpolate the URL (e.g. if caller used a config key)
+    # login and interpolate the URL
+    get_access_token
+    eval "final_url=\"$URL\""
 
-    [[ "${HEADERS[@]}" =~ 'Authorization:' ]] || HEADERS+=("Authorization: Bearer ${ACCESS_TOKEN}")
-    simple_curl "$METHOD" "$final_url" "$BODY" "${HEADERS[@]}"
+    if [[ ! "${HEADERS[@]}" =~ 'Authorization:' ]]; then
+        HEADERS+=("Authorization: Bearer ${ACCESS_TOKEN}")
+    fi
+
+    if [[ -n "$SAVE" ]]; then
+        simple_curl -save "$SAVE" "$METHOD" "$final_url" "$BODY" "${HEADERS[@]}"
+    else
+        simple_curl "$METHOD" "$final_url" "$BODY" "${HEADERS[@]}"
+    fi
 fi
 
-if [[ -z "$RESPONSE" ]]; then
+if [[ -n "$SAVE" ]]; then
+    echo "Saved to $SAVE" >&2
+elif [[ -z "$RESPONSE" ]]; then
     echo "No body received. HTTP status code: ${CODE}" >&2
 elif $PRETTY; then
     echo "$RESPONSE" | python -mjson.tool
@@ -257,6 +288,14 @@ fi
 
 lvl=$(( $CODE / 100 ))
 [[ $lvl -eq 2 ]] && exit
+
+if $FOLLOW && [[ $CODE -eq 302 ]] && [[ -n "$LOCATION" ]]; then
+    echo "Following 302 to ${LOCATION}" >&2
+    cargs=(-L)
+    $VERBOSE && cargs+=(-v)
+    [[ -n "$SAVE" ]] && cargs+=(-o "$SAVE")
+    exec curl "${cargs[@]}" "$LOCATION"
+fi
 
 [[ -n "$RESPONSE" ]] && echo "HTTP status code: ${CODE}" >&2
 exit $(( $lvl * 10 ))
