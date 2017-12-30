@@ -37,6 +37,8 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
         working with Unity HTTP APIs (while keeping dependencies at a minimum, requiring only bash,
         python, awk, and sed)
 
+        NOTE: sensitive access and refresh tokens are stored in the file system
+
   OPTIONS:
     -v             enable verbose output (show HTTP headers, etc.)
     -H             add a custom header (can be used multiple times)
@@ -57,7 +59,7 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
   FILE:     provide a filename to read and send using curl's data-binary option (detects content type)
 
 EOF
-    if [[ "$1" = *'exam'* ]]; then
+    if [[ "$1" = 'examples' ]]; then
         cat <<EOF >&2
   EXAMPLES:
 
