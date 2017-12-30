@@ -11,7 +11,7 @@ EVAL=false
 while true; do
     case "$1" in
         -v) VERBOSE=true;;
-        -H) shift; HEADERS+=($1);;
+        -H) shift; HEADERS+=("$1");;
         -host) shift; HOST_OVERRIDE=$1;;
         -pretty) PRETTY=true;;
         -eval) EVAL=true;;
@@ -78,7 +78,7 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
       # ucurl -pretty dev get \\\${COLLAB}/api/health\?include=memory,raindrops
 
     force use of alternate region:
-      # ucurl -v -host \$COLLAB prod get https://kong-prod-euc1-public.cloud.unity3d.com/api/health
+      # ucurl -v -host \\\$COLLAB prod get https://kong-prod-euc1-public.cloud.unity3d.com/api/health
 
 EOF
     exit 1
@@ -216,7 +216,7 @@ else
 
     if [[ -n "$HOST_OVERRIDE" ]]; then
         final_host="$(eval echo \"${HOST_OVERRIDE}\" | awk -F/ '{print $3}')" # strip out host if a URI
-        HEADERS+=(-H "Host: ${final_host}")
+        HEADERS+=("Host: ${final_host}")
     fi
 
     get_access_token            # login to genesis
