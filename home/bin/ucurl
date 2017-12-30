@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# REQUIREMENTS: bash v4, python v2.7
-
 VERSION='0.1.0'
 VERBOSE=false
 HEADERS=()
@@ -35,7 +33,9 @@ if [[ $# -lt 3 ]]; then
 
 usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
 
-  ${BN} (v${VERSION}) is a tool to automatically handle authentication and URL selection when working with Unity HTTP APIs
+  ${BN} (v${VERSION}) is a tool to automatically handle authentication and URL selection when
+        working with Unity HTTP APIs (while keeping dependencies at a minimum, requiring only bash,
+        python, awk, and sed)
 
   OPTIONS:
     -v             enable verbose output (show HTTP headers, etc.)
@@ -56,6 +56,9 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
   BODY:     provide the value sent using curl's data-binary option (assumes JSON format)
   FILE:     provide a filename to read and send using curl's data-binary option (detects content type)
 
+EOF
+    if [[ "$1" = *'exam'* ]]; then
+        cat <<EOF >&2
   EXAMPLES:
 
     list all of your orgs in the "dev" cloud environment:
@@ -90,6 +93,12 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
       # ucurl -save myfancyfile -follow dev get \\\${COLLAB}/api/projects/6086dd15-f6c1-4c7e-8411-34cc5183008b/cache/source/2c087aca87fe65bb31d6e15835965712
 
 EOF
+    else
+        cat <<EOF >&2
+  [ To include a list of examples: ${BN} examples ]
+
+EOF
+    fi
     exit 1
 fi
 
@@ -255,7 +264,7 @@ fi
 if [[ "$URL" = 'config' ]]; then
     PRETTY=true
 else
-    eval_response           # loads config keys as interpolation variables
+    eval_response # loads config keys as interpolation variables
 
     if [[ -n "$HOST_OVERRIDE" ]]; then
         final_host="$(eval echo \"${HOST_OVERRIDE}\" | awk -F/ '{print $3}')" # strip out host if a URI
