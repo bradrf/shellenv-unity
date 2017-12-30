@@ -22,7 +22,7 @@ done
 
 if $PRETTY && $EVAL; then
     echo 'Can not use both -pretty and -eval for output' >&2
-    exit 5
+    exit 2
 fi
 
 BN="$(basename "$0" .sh)"
@@ -44,7 +44,7 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
 
   METHOD:    g[et] | po[st] | pu[t] | d[elete]
 
-  URL:       provide a full URL -- may contain keys from the ENV config retrieved
+  URL:       provide a full URL -- may contain keys from the <env> config retrieved
              (use a value of "config" to dump the set of key/values available in <env>)
 
   BODY:      provide the value sent using curl's data-binary option (assumes JSON format)
@@ -91,7 +91,7 @@ case "$1" in
     p*) CLOUD_ENV=production;;
     *)
         echo "Unknown environment: $1" >&2
-        exit 2
+        exit 3
 esac
 shift
 
@@ -102,7 +102,7 @@ case "$1" in
     d*)  METHOD=DELETE;;
     *)
         echo "Unknown method: $1" >&2
-        exit 3
+        exit 4
 esac
 shift
 
@@ -131,6 +131,11 @@ function debug() {
 }
 
 function simple_curl() {
+    local expect
+    if [[ "$1" = '-expect' ]]; then
+        shift; expect=$1; shift
+    fi
+
     local method=$1; shift
     local url=$1; shift
     local body=$1; shift
@@ -152,18 +157,20 @@ function simple_curl() {
         CODE="$(curl "${cargs[@]}" "$url")"
     fi
 
+    [[ -n "$expect" ]] || expect=$CODE
+
     local res=$?
     RESPONSE="$(cat "$rfn")"
     rm -f "$rfn"
 
-    if [[ $res -ne 0 ]]; then
+    if [[ $res -ne 0 ]] || [[ $CODE -ne $expect ]]; then
+        $VERBOSE && echo "FAILED:      curl$(printf ' %q' "${cargs[@]}") '$url'"
         cat <<EOF >&2
-FAILED:      curl$(printf ' %q' "${cargs[@]}") '$url'
 CURL STATUS: ${res}
 HTTP CODE:   ${CODE}
 HTTP BODY:   ${RESPONSE}
 EOF
-        exit 4
+        exit 5
     fi
 }
 
@@ -200,7 +207,7 @@ function get_access_token() {
             body='{"grant_type":"password","username":"'"${email}"'","password":"'"${pass}"'"}'
         fi
 
-        simple_curl POST "${GENESIS_API_URL}/v1/core/api/login" "$body"
+        simple_curl -expect 200 POST "${GENESIS_API_URL}/v1/core/api/login" "$body"
         debug "$RESPONSE"
         eval_response
 
