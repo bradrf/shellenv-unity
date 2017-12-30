@@ -31,13 +31,13 @@ BN="$(basename "$0" .sh)"
 if [[ $# -lt 3 ]]; then
     cat <<EOF >&2
 
-usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
+usage: ${BN} [<options>] <cloud_env> <method> <url> [<body> | <file>]
 
   ${BN} (v${VERSION}) is a tool to automatically handle authentication and URL selection when
         working with Unity HTTP APIs (while keeping dependencies at a minimum, requiring only bash,
         python, awk, and sed)
 
-        NOTE: sensitive access and refresh tokens are stored in the file system
+        NOTE: sensitive access and refresh tokens are stored in the file system (${HOME}/.${BN}*)
 
   OPTIONS:
     -v             enable verbose output (show HTTP headers, etc.)
@@ -48,18 +48,18 @@ usage: ${BN} [<options>] <env> <method> <url> [<body> | <file>]
     -eval          write JSON response as evaluable shell key/value pairs (does not work w/ -pretty)
     -save <file>   write response to <file>
 
-  ENV:      l[ocal] | d[ev] | s[taging] | p[roduction]
+  CLOUD ENV:   local | dev | stag[ing] | prod[uction]
 
-  METHOD:   g[et] | po[st] | pu[t] | d[elete]
+  METHOD:      get | post | put | del[]ete]
 
-  URL:      provide a full URL -- may contain keys from the <env> config retrieved
-            (use a value of "config" to dump the set of key/values available in <env>)
+  URL:         provide a full URL -- may contain keys from the CLOUD ENV config retrieved
+               (use a value of "config" to dump the set of key/values available in CLOUD ENV)
 
-  BODY:     provide the value sent using curl's data-binary option (assumes JSON format)
-  FILE:     provide a filename to read and send using curl's data-binary option (detects content type)
+  BODY:        provide the value sent using curl's data-binary option (assumes JSON format)
+  FILE:        provide a filename to read and send using curl's data-binary option (detects content type)
 
 EOF
-    if [[ "$1" = 'examples' ]]; then
+    if [[ "$1" = 'ex'* ]]; then
         cat <<EOF >&2
   EXAMPLES:
 
@@ -70,11 +70,20 @@ EOF
       # ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/orgs/bradandy/projects | \\
           awk -F\\" '/"name"/{n=\$4};/guid/{g=\$4};/archived.*false/{print g,n}'
 
+    create a project:
+      # ucurl dev post \\\${GENESIS_API_URL}/v1/core/api/projects '{"name":"my-new-project"}'
+
     archive a project:
       # ucurl dev delete \\\${GENESIS_API_URL}/v1/core/api/orgs/bradandy/projects/95015c7a-b24b-4301-b2ae-844502f1cb7c
 
     unarchive a project:
       # ucurl dev put \\\${GENESIS_API_URL}/v1/core/api/orgs/bradandy/projects/95015c7a-b24b-4301-b2ae-844502f1cb7c/unarchive
+
+    enable the collab service flag:
+      # ucurl dev put \\\${GENESIS_API_URL}/v1/core/api/projects/5983bb66-2a3c-4f32-8d38-3e1befd2482a/service_flags '{"service_flags":{"collab":true}}'
+
+    list all the service flags for a project:
+      # ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/projects/5983bb66-2a3c-4f32-8d38-3e1befd2482a/service_flags
 
     get the most recent revision from a project hosted in Collab:
       # ucurl -pretty dev get \\\${COLLAB}/api/projects/6086dd15-f6c1-4c7e-8411-34cc5183008b/branches/master/revisions\\?limit=1
@@ -105,10 +114,10 @@ EOF
 fi
 
 case "$1" in
-    l*) CLOUD_ENV=local;;
-    d*) CLOUD_ENV=dev;;
-    s*) CLOUD_ENV=staging;;
-    p*) CLOUD_ENV=production;;
+    local) CLOUD_ENV=local;;
+    dev) CLOUD_ENV=dev;;
+    stag*) CLOUD_ENV=staging;;
+    prod*) CLOUD_ENV=production;;
     *)
         echo "Unknown environment: $1" >&2
         exit 3
@@ -116,10 +125,10 @@ esac
 shift
 
 case "$1" in
-    g*)  METHOD=GET;;
-    po*) METHOD=POST;;
-    pu*) METHOD=PUT;;
-    d*)  METHOD=DELETE;;
+    get)  METHOD=GET;;
+    post) METHOD=POST;;
+    put) METHOD=PUT;;
+    del*)  METHOD=DELETE;;
     *)
         echo "Unknown method: $1" >&2
         exit 4
