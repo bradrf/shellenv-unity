@@ -39,7 +39,7 @@ function git_repair_corrupted_packed_refs()
         set -e
         set -x
         ( cd ~/ucs && bin/rails r "r=Repo.find_by_project_fk('$upid');p '-'*40, r, r.branches, '-'*40" )
-        git clone --bare "$repo" "$upid"
+        git clone --bare "$repo" "$upid" || cp -a "$repo" "$upid" || :
         echo 'paste packed-refs'
         cat - > "${upid}/packed-refs"
         echo "revisions count: $(git -C "$upid" log --oneline | wc -l)"

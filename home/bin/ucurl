@@ -185,7 +185,11 @@ function simple_curl() {
 
     local cargs=(-A "${BN}/${VERSION}" -D "${hfn}" -o "${rfn}")
     $VERBOSE && cargs+=(-v)
-    cargs+=(-X "$method")
+    if [[ "$method" = 'POST' ]] && [[ -n "$body" ]]; then
+        : # let curl infer -X POST (otherwise, Ubuntu version complains)
+    else
+        cargs+=(-X "$method")
+    fi
     for hdr in "${headers[@]}"; do cargs+=(-H "$hdr"); done
 
     [[ -n "$body" ]] && cargs+=(--data-binary "$body")
@@ -198,7 +202,8 @@ function simple_curl() {
     fi
     local res=$?
 
-    eval "$(awk 'NR==1{sub("\r","",$2);print "CODE="$2};/^Location:/{sub("\r","",$2);print "LOCATION=\""$2"\""}' "$hfn")"
+    # look for _FINAL_ HTTP status line and get a clean response code and location header
+    eval "$(awk '/^HTTP/{c=$2};/^Location:/{l=$2};END{sub("\r","",c);sub("\r","",$2);print "CODE="c";LOCATION=\""$2"\""};' "$hfn")"
     rm -f "$hfn"
 
     if [[ -z "$save" ]]; then
