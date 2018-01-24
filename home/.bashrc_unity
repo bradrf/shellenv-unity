@@ -679,7 +679,7 @@ function collab_deploy()
     local env=$1; shift
     local img=$1; shift
     local pods="${*}"
-    [[ -z "$pods" ]] && pods='oddjob backburner sqsprocessor collab'
+    [[ -z "$pods" ]] && pods='oddjob backburner sqsprocessor collab collabot'
     local pod fullimg
     for pod in $pods; do
         echo "[$pod]"
@@ -694,17 +694,22 @@ function watch_deploy()
         echo 'usage: watch_deploy <kubey_args>' >&2
         return 1
     fi
+    local epid
     local i
-    while kubey  --cache-seconds 5 "$@" .; do
-        echo '======================================================================'
-        i=10
-        while [[ $i -gt 0 ]]; do
-            printf "Refresh in %d seconds...                                      \r" $i
-            sleep 1
-            (( i-- ))
+    ( kubey "$@" . events & echo $! >&3 ) 3>epid | grep -v -E 'DNS|Resolv' &
+    ( # run in a subshell to trap control-c keyboard interrupt
+        trap "echo killing $(<epid); kill $(<epid)" 0
+        while kubey --cache-seconds 5 "$@" .; do
+            echo '======================================================================'
+            i=10
+            while [[ $i -gt 0 ]]; do
+                printf "Refresh in %d seconds...                                      \r" $i
+                sleep 1
+                (( i-- ))
+            done
+            printf "                                                                      \r"
         done
-        printf "                                                                      \r"
-    done
+    )
 }
 
 function ktrace()
@@ -730,9 +735,10 @@ function check_consul_available()
     local of="/tmp/consul_available_${1}_${2}.log"
     ktrace "-c $1 -n collab-$2 collab/collab" '[Process.pid,RuntimeConfig.consul_available?]' | \
         tee "$of" | highlight false
-    local cnt
-    cnt=$(grep -cF false "$of")
-    echo "Saved output to $of (found ${cnt} false entries)"
+    local false_cnt true_cnt
+    true_cnt=$(grep -cF true "$of")
+    false_cnt=$(grep -cF false "$of")
+    echo "Saved output to $of (${true_cnt} connected and ${false_cnt} disconnected)"
 }
 
 # # https://www.percona.com/blog/2012/08/29/heres-a-quick-way-to-foresee-if-replication-slave-is-ever-going-to-catch-up-and-when/
@@ -865,4 +871,14 @@ function s3ls_region()
         all)
     esac
 
+}
+
+function artifactory_latest()
+{
+    if [[ $# -ne 1 ]]; then
+        echo 'artifactory_latest <image>' >&2
+        return 1;
+    fi
+    curl -qfs "https://artifactory.eu-cph-1.unityops.net:5010/buildpipe-registry1/${1}/" | \
+        awk -F\" '$2 ~ /^[0-9]*\/$/ {gsub(/\/$/,"",$2);if($2 + 0 > v) v = $2}END{print v}'
 }
