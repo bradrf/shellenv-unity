@@ -284,6 +284,7 @@ else
 
     if [[ -n "$HOST_OVERRIDE" ]]; then
         final_host="$(eval echo \"${HOST_OVERRIDE}\" | awk -F/ '{print $3}')" # strip out host if a URI
+        [[ -z "$final_host" ]] && final_host="$HOST_OVERRIDE"
         HEADERS+=("Host: ${final_host}")
     fi
 

@@ -22,8 +22,8 @@ def add_format_args(fmt, keys, subparser):
         parser.add_argument('--filter-'+key, nargs=1)
 
 
-nsp = '(\S+)'
-qtd = '(?:"([^"]+)"|-)'
+nsp = r'(\S+)'
+qtd = r'(?:"((?:[^"\\]|\\.)*)"|-)'
 
 formats = {
     # http://docs.aws.amazon.com/AmazonS3/latest/dev/LogFormat.html
