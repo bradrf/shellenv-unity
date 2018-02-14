@@ -27,10 +27,11 @@ function volfor()
     ls -1dt /mnt/repos/volume*/"${shard}/$1" | head -1
 }
 
-function git_repair_corrupted_packed_refs()
+function git_repair_corrupted_file()
 {
-    [ $# -ne 1 ] && echo 'need UPID' >&2 && return 1
+    [ $# -ne 2 ] && echo 'need UPID and filename to repair' >&2 && return 1
     local upid=$1
+    local fn=$2
     local repo
     local vol
     repo=$(volfor "$upid")
@@ -38,10 +39,10 @@ function git_repair_corrupted_packed_refs()
     (
         set -e
         set -x
-        ( cd ~/ucs && bin/rails r "r=Repo.find_by_project_fk('$upid');p '-'*40, r, r.branches, '-'*40" )
+        ( cd ${RAILS_ROOT} && bin/rails r "r=Repo.find_by_project_fk('$upid');p '-'*40, r, r.branches, '-'*40" )
         git clone --bare "$repo" "$upid" || cp -a "$repo" "$upid" || :
-        echo 'paste packed-refs'
-        cat - > "${upid}/packed-refs"
+        echo "paste $fn"
+        cat - > "${upid}/${fn}"
         echo "revisions count: $(git -C "$upid" log --oneline | wc -l)"
         echo "mv -vi $repo ${vol}/badrepos/ && cp -vr $upid $repo && git -C $repo log -3"
     )
