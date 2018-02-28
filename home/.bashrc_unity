@@ -694,11 +694,11 @@ function watch_deploy()
         echo 'usage: watch_deploy <kubey_args>' >&2
         return 1
     fi
-    local epid
+    local epid="$(mktemp)"
     local i
-    ( kubey "$@" . events & echo $! >&3 ) 3>epid | grep -v -E 'DNS|Resolv' &
+    ( kubey "$@" . events & echo $! >&3 ) 3>"$epid" | grep -v -E 'DNS|Resolv' &
     ( # run in a subshell to trap control-c keyboard interrupt
-        trap "echo killing $(<epid); kill $(<epid)" 0
+        trap "echo killing $(<$epid); kill $(<$epid); rm -f $epid" 0
         while kubey --cache-seconds 5 "$@" .; do
             echo '======================================================================'
             i=10
