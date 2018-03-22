@@ -614,11 +614,24 @@ function knodeips()
 # run a command on each node async
 function keachnode()
 {
-    local cmd ip line
+    local ctx esc cmd ip line
     if [[ "$1" = '-c' ]]; then
         shift; ctx=$1; shift
     fi
-    cmd=$(shellwords "$@")
+    if [[ "$1" = '--no-escape' ]]; then
+        shift; esc=false
+    else
+        esc=true
+    fi
+    if [[ $# -lt 1 ]]; then
+        echo 'usage: keachnode [-c <context>] [--no-escape] <cmd> [<args>...]' >&2
+        return 1
+    fi
+    if $esc; then
+        cmd=$(shellwords "$@")
+    else
+        cmd="$@"
+    fi
     for ip in $(knodeips "$ctx"); do
         pgrep -qf "ssh: .*@${ip}" || ssh "$ip" : # start background ssh control session
         ( ( ssh "$ip" $cmd 2>&1 | while read -r line; do printf '%-15s %s\n' "${ip}:" "${line}"; done ) & )
@@ -653,6 +666,21 @@ function kforward()
     # get service ip and use to ssh to private ip of host
     # > ssh -o 'ControlPath none' -L 11300:100.65.6.123:11300 172.26.4.166
     :
+}
+
+function ku()
+{
+    if [[ $# -lt 1 ]]; then
+        kubectl config get-contexts
+        return
+    fi
+    local ctx
+    ctx="$(kubectl config get-contexts -oname | sort -r | grep -m1 "$*")"
+    if [[ -z "$ctx" ]]; then
+        echo 'no match found' >&2
+        return 1
+    fi
+    kubectl config use-context "$ctx"
 }
 
 # display only the names of any resource (e.g. kubectl get namespaces $knames)

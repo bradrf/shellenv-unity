@@ -1,12 +1,15 @@
 #!/bin/bash
 
-VERSION='0.1.0'
+VERSION='0.2.0'
 VERBOSE=false
 HEADERS=()
 PRETTY=false
 EVAL=false
 FOLLOW=false
+INSECURE=false
 SAVE=''
+
+# TODO: FIX SSL with either        --resolve <host:port:address> or --insecure
 
 while true; do
     case "$1" in
@@ -16,7 +19,9 @@ while true; do
         -pretty) PRETTY=true;;
         -eval) EVAL=true;;
         -follow) FOLLOW=true;;
+        -insecure) INSECURE=true;;
         -save) shift; SAVE=$1;;
+        -limit) shift; LIMIT=$1;;
         *) break;;
     esac
     shift
@@ -44,13 +49,15 @@ usage: ${BN} [<options>] <cloud_env> <method> <url> [<body> | <file>]
     -H             add a custom header (can be used multiple times)
     -host <val>    host header value (otherwise uses host from <url>; can be a variable name)
     -follow        follow 302 redirects using the indicated Location header
+    -limit <speed> restrict the transfer rate (see Curl manpage)
+    -insecure      do not verify certifcate
     -pretty        write JSON nicely formatted (does not work w/ -eval)
     -eval          write JSON response as evaluable shell key/value pairs (does not work w/ -pretty)
     -save <file>   write response to <file>
 
   CLOUD ENV:   local | dev | stag[ing] | prod[uction]
 
-  METHOD:      get | post | put | del[]ete]
+  METHOD:      get | post | put | del[ete]
 
   URL:         provide a full URL -- may contain keys from the CLOUD ENV config retrieved
                (use a value of "config" to dump the set of key/values available in CLOUD ENV)
@@ -185,12 +192,14 @@ function simple_curl() {
 
     local cargs=(-A "${BN}/${VERSION}" -D "${hfn}" -o "${rfn}")
     $VERBOSE && cargs+=(-v)
+    $INSECURE && cargs+=(-k)
     if [[ "$method" = 'POST' ]] && [[ -n "$body" ]]; then
         : # let curl infer -X POST (otherwise, Ubuntu version complains)
     else
         cargs+=(-X "$method")
     fi
     for hdr in "${headers[@]}"; do cargs+=(-H "$hdr"); done
+    [[ -n "$LIMIT" ]] && cargs+=(--limit-rate "$LIMIT")
 
     [[ -n "$body" ]] && cargs+=(--data-binary "$body")
     [[ $BODY_SIZE -lt 10485760 ]] && cargs+=(-s) # keep silent for small uploads
@@ -226,7 +235,7 @@ EOF
 function response_to_key_values() {
     echo "$RESPONSE" | \
 python -c 'import sys,json,re; \
-print ";".join("%s=\"%s\"" % (re.sub(r"[\W_]+","_",k.upper()),v) for (k,v) in json.load(sys.stdin).items())'
+print(";".join("%s=\"%s\"" % (re.sub(r"[\W_]+","_",k.upper()),v) for (k,v) in json.load(sys.stdin).items()))'
 }
 
 function eval_response() {
@@ -288,13 +297,13 @@ else
         HEADERS+=("Host: ${final_host}")
     fi
 
-    # login and interpolate the URL
-    get_access_token
-    eval "final_url=\"$URL\""
-
     if [[ ! "${HEADERS[@]}" =~ 'Authorization:' ]]; then
+        get_access_token
         HEADERS+=("Authorization: Bearer ${ACCESS_TOKEN}")
     fi
+
+    # interpolate the URL
+    eval "final_url=\"$URL\""
 
     if [[ -n "$SAVE" ]]; then
         simple_curl -save "$SAVE" "$METHOD" "$final_url" "$BODY" "${HEADERS[@]}"
