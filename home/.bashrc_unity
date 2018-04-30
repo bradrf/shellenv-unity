@@ -700,19 +700,23 @@ function clean_orphan_replicasets()
 
 function collab_deploy()
 {
+    local defpods='oddjob backburner sqsprocessor collab collabot'
     if [[ $# -lt 2 ]]; then
-        echo 'usage: collab_deploy <env> <img> [<pods>...]' >&2
+        echo "usage: collab_deploy <env> <img> [${defpods}]" >&2
         return 1
     fi
     local env=$1; shift
     local img=$1; shift
     local pods="${*}"
-    [[ -z "$pods" ]] && pods='oddjob backburner sqsprocessor collab collabot'
+    [[ -z "$pods" ]] && pods=$defpods
     local pod fullimg
     for pod in $pods; do
         echo "[$pod]"
-        fullimg="artifactory.eu-cph-1.unityops.net:5010/$pod:$img"
+        fullimg="artifactory.eu-cph-1.unityops.net:5010/collab:$img"
         ./deploy_collab.sh --stable --image "$fullimg" apply "$env" "$pod" || break
+        if [[ "$pod" = 'backburner' ]]; then
+            ./deploy_collab.sh --stable --image "$fullimg" apply "$env" backburner-simple || break
+        fi
     done
 }
 
@@ -749,7 +753,7 @@ function ktrace()
     local kargs="$1"; shift
     local tcmd="$1"; shift
     local cmd='for p in `pgrep -f unicorn\ worker`; do '
-    cmd+='( bin/bundle exec rbtrace -p $p -e "'"$tcmd"'" 2>/dev/null | grep --line-buffered -F "=>" & ); '
+    cmd+='( bin/bundle exec rbtrace -p $p -e "'"$tcmd"'" 2>/dev/null | grep -F "=>" & ); '
     cmd+='done; wait'
     kubey $kargs each -ap -- $cmd
 }
