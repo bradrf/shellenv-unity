@@ -7,6 +7,7 @@ PRETTY=false
 EVAL=false
 FOLLOW=false
 INSECURE=false
+LOGIN=false
 SAVE=''
 
 # TODO: FIX SSL with either        --resolve <host:port:address> or --insecure
@@ -20,6 +21,7 @@ while true; do
         -eval) EVAL=true;;
         -follow) FOLLOW=true;;
         -insecure) INSECURE=true;;
+        -login) LOGIN=true;;
         -save) shift; SAVE=$1;;
         -limit) shift; LIMIT=$1;;
         *) break;;
@@ -51,6 +53,7 @@ usage: ${BN} [<options>] <cloud_env> <method> <url> [<body> | <file>]
     -follow        follow 302 redirects using the indicated Location header
     -limit <speed> restrict the transfer rate (see Curl manpage)
     -insecure      do not verify certifcate
+    -login         force login (ask for credentials)
     -pretty        write JSON nicely formatted (does not work w/ -eval)
     -eval          write JSON response as evaluable shell key/value pairs (does not work w/ -pretty)
     -save <file>   write response to <file>
@@ -246,7 +249,10 @@ function get_access_token() {
     local now body
     local cache_fn="${HOME}/.${BN}_${CLOUD_ENV}_cache"
 
-    if [[ -f "$cache_fn" ]]; then
+    if $LOGIN; then
+        # force request for credentials and get new tokens
+        unset ACCESS_TOKEN REFRESH_TOKEN
+    elif [[ -f "$cache_fn" ]]; then
         . "$cache_fn"
         now=$(date +%s)
         if [[ $EXPIRES_AT -le $now ]]; then
