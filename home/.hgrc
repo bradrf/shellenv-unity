@@ -11,12 +11,8 @@ transplant =
 progress =
 purge =
 strip =
-# os x install in _THIS_ order (system, not user for pip!):
-#   > pip install keyring
-#   > pip show keyring
-#   > pip install mercurial_extension_utils
-#   > pip install mercurial_keyring
-#   > brew install mercurial
+# use unity's tortoisehg which installs hg and keyring better than brew
+# http://scholar.internal.unity3d.com/reader/book/article/tools.mercurial.mercurial-install
 mercurial_keyring =
 dynapath = ~/work/dynapath/dynapath.py
 color =
@@ -58,5 +54,7 @@ seattle-mirror.ipprefix = 10.1.16.0/22
 seattle-mirror.pathprefix = https://ono.unity3d.com/
 seattle-mirror.pathsubst = https://ono-proxy-seattle.hq.unity3d.com/
 
-[hostfingerprints]
-ono-proxy-seattle.hq.unity3d.com = 3b:5b:3d:33:0c:83:2e:16:c0:14:b3:94:d0:4e:30:f3:6c:d9:87:02
+[hostsecurity]
+# ono proxy is still using TLS 1.0, so...
+disabletls10warning = true
+ono-proxy-seattle.hq.unity3d.com:fingerprints = sha256:7a:1a:ad:1d:f4:d1:da:22:b9:fe:2c:67:ab:00:f6:cf:20:74:3c:a5:98:7e:2b:5f:df:bf:45:6c:18:71:dd:b5

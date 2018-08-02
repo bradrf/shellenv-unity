@@ -611,6 +611,21 @@ function knodeips()
     kubectl $args get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}'
 }
 
+function keachctx()
+{
+    local ctx
+    if [[ $# -lt 1 ]]; then
+        cat <<EOF >&2
+usage: keachctx <command> [<arg> ....]
+[ NOTE: command is eval'd with a \$cxt variable available ]
+EOF
+        return 1
+    fi
+    for ctx in int-usw1 prod-sae1 prod-apse1 prod-euc1 prod-usw1; do
+        eval "$@"
+    done
+}
+
 # run a command on each node async
 function keachnode()
 {
@@ -668,6 +683,9 @@ function kforward()
     :
 }
 
+# NOTE: to pin kubectl at a particular version, follow these steps:
+#       http://zoltanaltfatter.com/2017/09/07/Install-a-specific-version-of-formula-with-homebrew/
+#       but remember to run `brew pin kubernetes-cli` before updating
 function ku()
 {
     if [[ $# -lt 1 ]]; then
@@ -681,6 +699,56 @@ function ku()
         return 1
     fi
     kubectl config use-context "$ctx"
+}
+
+function klean_evictions()
+{
+    if [[ $# -ne 1 ]]; then
+        echo 'usage: klean_evictions <context>' >&2
+        return 1
+    fi
+    local ctx=$1
+    kubectl --context ${ctx} get pod --all-namespaces -a | \
+        ruby -e 'b=Hash.new{|h,k|h[k]=[]};'`
+                `'while a=gets&.split;'`
+                  `'a[3] =~ /Evicted/ and b[a[0]] << a[1];'`
+                `'end;'`
+                `'b.each{|(k,v)|'`
+                  `"puts %x{kubectl --context ${ctx} delete pod -n #{k} #{v.join(' ')}}"`
+                `'}'
+}
+
+function kall()
+{
+    local ns args=()
+    if [[ "$1" = '-c' ]]; then
+        shift; args+=(-c "$1"); shift
+    fi
+    if [[ $# -ne 1 ]]; then
+        echo 'usage: kall [-c <context>] <namespace>' >&2
+        return 1
+    fi
+    ns=$1; shift
+    args+=(-n "${ns}")
+    local rsc res
+    local ign='all|events|clusterroles|clusterrolebindings|customresourcedefinition|namespaces|'`
+             `'nodes|persistentvolumeclaims|storageclasses'
+    for rsc in $(kubectl get 2>&1 | awk '/^  \* /{if (!($2 ~ /^('"${ign}"')$/)) print $2}'); do
+        if [[ "${rsc}" = 'persistentvolumes' ]]; then
+            res=$(kubectl get "${rsc}" | awk 'NR==1{print};$6 ~ /^'"${ns}"'/{print}')
+        else
+            res=$(kubectl "${args[@]}" get "${rsc}" 2>&1)
+        fi
+        [[ $? -eq 0 ]] || continue
+        [[ $(echo "$res" | wc -l ) -lt 2 ]] && continue
+        cat <<EOF
+
+----------------------------------------------------------------------
+$(upcase "$rsc")
+
+${res}
+EOF
+    done
 }
 
 # display only the names of any resource (e.g. kubectl get namespaces $knames)

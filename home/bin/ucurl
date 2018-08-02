@@ -1,7 +1,7 @@
 #!/bin/bash
 
 VERSION='0.2.0'
-VERBOSE=false
+VERBOSITY=0
 HEADERS=()
 PRETTY=false
 EVAL=false
@@ -14,7 +14,7 @@ SAVE=''
 
 while true; do
     case "$1" in
-        -v) VERBOSE=true;;
+        -v) (( ++VERBOSITY ));;
         -H) shift; HEADERS+=("$1");;
         -host) shift; HOST_OVERRIDE=$1;;
         -pretty) PRETTY=true;;
@@ -47,7 +47,7 @@ usage: ${BN} [<options>] <cloud_env> <method> <url> [<body> | <file>]
         NOTE: sensitive access and refresh tokens are stored in the file system (${HOME}/.${BN}*)
 
   OPTIONS:
-    -v             enable verbose output (show HTTP headers, etc.)
+    -v             increase verbosity of output (show HTTP headers, etc.)
     -H             add a custom header (can be used multiple times)
     -host <val>    host header value (otherwise uses host from <url>; can be a variable name)
     -follow        follow 302 redirects using the indicated Location header
@@ -150,7 +150,7 @@ URL="$1"; shift
 if [[ $# -gt 0 ]]; then
     if [[ -f "$1" ]]; then
         BODY="@$1"
-        BODY_SIZE="$(python -c "import os; print os.stat('$1').st_size")"
+        BODY_SIZE="$(wc -c < "$1" | tr -d '[:space:]')"
         [[ "${HEADERS[@]}" =~ 'Content-Type:' ]] || HEADERS+=("Content-Type: $(file -b --mime-type "$1")")
     else
         BODY="$1"
@@ -194,7 +194,7 @@ function simple_curl() {
     fi
 
     local cargs=(-A "${BN}/${VERSION}" -D "${hfn}" -o "${rfn}")
-    $VERBOSE && cargs+=(-v)
+    [[ $VERBOSITY -gt 0 ]] && cargs+=(-v)
     $INSECURE && cargs+=(-k)
     if [[ "$method" = 'POST' ]] && [[ -n "$body" ]]; then
         : # let curl infer -X POST (otherwise, Ubuntu version complains)
@@ -207,7 +207,8 @@ function simple_curl() {
     [[ -n "$body" ]] && cargs+=(--data-binary "$body")
     [[ $BODY_SIZE -lt 10485760 ]] && cargs+=(-s) # keep silent for small uploads
 
-    if $VERBOSE; then
+    if [[ $VERBOSITY -eq 1 ]]; then
+        # redact under "normal" verbosity, otherwise, show it
         curl "${cargs[@]}" "$url" 2> >(sed 's/Bearer .*$/Bearer [REDACTED]/' >&2)
     else
         curl "${cargs[@]}" "$url"
@@ -225,7 +226,7 @@ function simple_curl() {
 
     [[ -n "$expect" ]] || expect=$CODE
     if [[ $res -ne 0 ]] || [[ $CODE -ne $expect ]]; then
-        $VERBOSE && echo "FAILED:      curl$(printf ' %q' "${cargs[@]}") '$url'" >&2
+        [[ $VERBOSITY -gt 0 ]] && echo "FAILED:      curl$(printf ' %q' "${cargs[@]}") '$url'" >&2
         cat <<EOF >&2
 CURL STATUS: ${res}
 HTTP CODE:   ${CODE}
@@ -272,7 +273,7 @@ function get_access_token() {
         fi
 
         simple_curl -expect 200 POST "${GENESIS_API_URL}/v1/core/api/login" "$body"
-        $VERBOSE && echo "$RESPONSE" >&2
+        [[ $VERBOSITY -gt 0 ]] && echo "$RESPONSE" >&2
         eval_response
 
         EXPIRES_AT=$(( $(date +%s) + $EXPIRES_IN - 30 ))
@@ -336,7 +337,7 @@ lvl=$(( $CODE / 100 ))
 if $FOLLOW && [[ $CODE -eq 302 ]] && [[ -n "$LOCATION" ]]; then
     echo "Following 302 to ${LOCATION}" >&2
     cargs=(-L)
-    $VERBOSE && cargs+=(-v)
+    [[ $VERBOSITY -gt 0 ]] && cargs+=(-v)
     [[ -n "$SAVE" ]] && cargs+=(-o "$SAVE")
     exec curl "${cargs[@]}" "$LOCATION"
 fi
