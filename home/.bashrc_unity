@@ -688,17 +688,68 @@ function kforward()
 #       but remember to run `brew pin kubernetes-cli` before updating
 function ku()
 {
+    local ctx ns
+
     if [[ $# -lt 1 ]]; then
-        kubectl config get-contexts
+        kubectl config get-contexts | highlight '^\*'
         return
     fi
-    local ctx
-    ctx="$(kubectl config get-contexts -oname | sort -r | grep -m1 "$*")"
-    if [[ -z "$ctx" ]]; then
-        echo 'no match found' >&2
+
+    if [[ $# -eq 2 ]]; then
+        ctx=$(kubectl config get-contexts -oname | sort -r | grep -m1 "$1")
+        if [[ -z "$ctx" ]]; then
+            echo 'no match found' >&2
+            return 2
+        fi
+        shift
+        kubectl config use-context "$ctx"
+    elif [[ $# -eq 1 ]]; then
+        ctx=$(kubectl config current-context)
+    else
+        cat <<EOF >&2
+usage: ku <namespace>
+       ku <context> <namespace>
+EOF
         return 1
     fi
-    kubectl config use-context "$ctx"
+
+    ns=$(kubectl get ns -oname | cut -d/ -f2 | sort | grep -m1 "$1")
+    if [[ -z "$ns" ]]; then
+        echo 'no match found' >&2
+        return 3
+    fi
+    kubectl config set-context "$ctx" --namespace "$ns" | sed 's/\.$/ using namespace "'"${ns}"'"./'
+}
+
+function k()
+{
+    if [[ $# -lt 1 ]]; then
+        btwhich k | grep -B1 '[a]rgs+=' | grep -v '^--$'
+        return 1
+    fi
+    local a args=()
+    for a in "$@"; do
+        case "$a" in
+            a) args+=(apply);;
+            d) args+=(describe);;
+            del) args+=(delete);;
+            dep) args+=(deploy);;
+            ev) args+=(get events);;
+            ex) args+=('exec');;
+            g) args+=(get);;
+            l) args+=(logs);;
+            n) args+=(get nodes);;
+            p) args+=(get pods);;
+            tn) args+=(top node);;
+            tp) args+=(top pod --containers);;
+            w) args+=(-owide);;
+            y) args+=(-oyaml);;
+            .*) args+=($(kubectl get pods -oname | grep "${a:1}"));;
+            *) args+=("$a")
+        esac
+    done
+    echo kubectl $(printf ' %q' "${args[@]}") >&2
+    kubectl "${args[@]}"
 }
 
 function klean_evictions()
