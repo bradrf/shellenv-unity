@@ -534,6 +534,23 @@ function s3_remove_zero_byte_files()
     echo "Removed ${total} of ${line_count} items from ${bucket}"
 }
 
+function klean_evictions()
+{
+    if [[ $# -ne 1 ]]; then
+        echo 'usage: klean_evictions <context>' >&2
+        return 1
+    fi
+    local ctx=$1
+    kubectl --context ${ctx} get pod --all-namespaces -a | \
+        ruby -e 'b=Hash.new{|h,k|h[k]=[]};'`
+                `'while a=gets&.split;'`
+                  `'a[3] =~ /Evicted/ and b[a[0]] << a[1];'`
+                `'end;'`
+                `'b.each{|(k,v)|'`
+                  `"puts %x{kubectl --context ${ctx} delete pod -n #{k} #{v.join(' ')}}"`
+                `'}'
+}
+
 # TODO: add helper to get currently env deployment tag and open URL to compare to master:
 # https://gitlab-prod1.eu-cph-1.unityops.net/cloudservices/collab-service/compare/20170314-Production...master
 
@@ -602,208 +619,6 @@ function krepl()
     fi
     kubey "${args[@]}"
 }
-
-# report all internal node IPs
-function knodeips()
-{
-    local args
-    [[ -n "$1" ]] && args="--context $1"
-    kubectl $args get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}'
-}
-
-function keachctx()
-{
-    local ctx
-    if [[ $# -lt 1 ]]; then
-        cat <<EOF >&2
-usage: keachctx <command> [<arg> ....]
-[ NOTE: command is eval'd with a \$cxt variable available ]
-EOF
-        return 1
-    fi
-    for ctx in int-usw1 prod-sae1 prod-apse1 prod-euc1 prod-usw1; do
-        eval "$@"
-    done
-}
-
-# run a command on each node async
-function keachnode()
-{
-    local ctx esc cmd ip line
-    if [[ "$1" = '-c' ]]; then
-        shift; ctx=$1; shift
-    fi
-    if [[ "$1" = '--no-escape' ]]; then
-        shift; esc=false
-    else
-        esc=true
-    fi
-    if [[ $# -lt 1 ]]; then
-        echo 'usage: keachnode [-c <context>] [--no-escape] <cmd> [<args>...]' >&2
-        return 1
-    fi
-    if $esc; then
-        cmd=$(shellwords "$@")
-    else
-        cmd="$@"
-    fi
-    for ip in $(knodeips "$ctx"); do
-        pgrep -qf "ssh: .*@${ip}" || ssh "$ip" : # start background ssh control session
-        ( ( ssh "$ip" $cmd 2>&1 | while read -r line; do printf '%-15s %s\n' "${ip}:" "${line}"; done ) & )
-    done
-    sleep 1
-    wait
-}
-
-# get uptimes for all nodes sorted by descending load (highest load at top)
-function kuptime()
-{
-    keachnode "$@" uptime | sort -rnk 11
-}
-
-# get memory usage for all nodes sorted by ascending free memory (smallest memory available at top)
-function kmem()
-{
-    printf '%15s %s\n' '[megabytes]' '             total       used       free     shared    buffers     cached'
-    keachnode "$@" sh -c 'free -m | grep ^Mem' | sort -nk 5
-}
-
-# get file system usage for all nodes sorted by percent used (smallest space available at top)
-function kdf()
-{
-    printf '%-15s %s\n' 'Host' 'Filesystem              Size  Used Avail Use% Mounted on'
-    keachnode "$@" sh -c 'df -h / /var/lib/docker | sed 1d' | sort -rnk 6
-}
-
-function kforward()
-{
-    # > kubectl -n services-andy -o wide get services beanstalkd
-    # get service ip and use to ssh to private ip of host
-    # > ssh -o 'ControlPath none' -L 11300:100.65.6.123:11300 172.26.4.166
-    :
-}
-
-# NOTE: to pin kubectl at a particular version, follow these steps:
-#       http://zoltanaltfatter.com/2017/09/07/Install-a-specific-version-of-formula-with-homebrew/
-#       but remember to run `brew pin kubernetes-cli` before updating
-function ku()
-{
-    local ctx ns
-
-    if [[ $# -lt 1 ]]; then
-        kubectl config get-contexts | highlight '^\*'
-        return
-    fi
-
-    if [[ $# -eq 2 ]]; then
-        ctx=$(kubectl config get-contexts -oname | sort -r | grep -m1 "$1")
-        if [[ -z "$ctx" ]]; then
-            echo 'no match found' >&2
-            return 2
-        fi
-        shift
-        kubectl config use-context "$ctx"
-    elif [[ $# -eq 1 ]]; then
-        ctx=$(kubectl config current-context)
-    else
-        cat <<EOF >&2
-usage: ku <namespace>
-       ku <context> <namespace>
-EOF
-        return 1
-    fi
-
-    ns=$(kubectl get ns -oname | cut -d/ -f2 | sort | grep -m1 "$1")
-    if [[ -z "$ns" ]]; then
-        echo 'no match found' >&2
-        return 3
-    fi
-    kubectl config set-context "$ctx" --namespace "$ns" | sed 's/\.$/ using namespace "'"${ns}"'"./'
-}
-
-function k()
-{
-    if [[ $# -lt 1 ]]; then
-        btwhich k | grep -B1 '[a]rgs+=' | grep -v '^--$'
-        return 1
-    fi
-    local a args=()
-    for a in "$@"; do
-        case "$a" in
-            a) args+=(apply);;
-            d) args+=(describe);;
-            del) args+=(delete);;
-            dep) args+=(deploy);;
-            ev) args+=(get events);;
-            ex) args+=('exec');;
-            g) args+=(get);;
-            l) args+=(logs);;
-            n) args+=(get nodes);;
-            p) args+=(get pods);;
-            tn) args+=(top node);;
-            tp) args+=(top pod --containers);;
-            w) args+=(-owide);;
-            y) args+=(-oyaml);;
-            .*) args+=($(kubectl get pods -oname | grep "${a:1}"));;
-            *) args+=("$a")
-        esac
-    done
-    echo kubectl $(printf ' %q' "${args[@]}") >&2
-    kubectl "${args[@]}"
-}
-
-function klean_evictions()
-{
-    if [[ $# -ne 1 ]]; then
-        echo 'usage: klean_evictions <context>' >&2
-        return 1
-    fi
-    local ctx=$1
-    kubectl --context ${ctx} get pod --all-namespaces -a | \
-        ruby -e 'b=Hash.new{|h,k|h[k]=[]};'`
-                `'while a=gets&.split;'`
-                  `'a[3] =~ /Evicted/ and b[a[0]] << a[1];'`
-                `'end;'`
-                `'b.each{|(k,v)|'`
-                  `"puts %x{kubectl --context ${ctx} delete pod -n #{k} #{v.join(' ')}}"`
-                `'}'
-}
-
-function kall()
-{
-    local ns args=()
-    if [[ "$1" = '-c' ]]; then
-        shift; args+=(-c "$1"); shift
-    fi
-    if [[ $# -ne 1 ]]; then
-        echo 'usage: kall [-c <context>] <namespace>' >&2
-        return 1
-    fi
-    ns=$1; shift
-    args+=(-n "${ns}")
-    local rsc res
-    local ign='all|events|clusterroles|clusterrolebindings|customresourcedefinition|namespaces|'`
-             `'nodes|persistentvolumeclaims|storageclasses'
-    for rsc in $(kubectl get 2>&1 | awk '/^  \* /{if (!($2 ~ /^('"${ign}"')$/)) print $2}'); do
-        if [[ "${rsc}" = 'persistentvolumes' ]]; then
-            res=$(kubectl get "${rsc}" | awk 'NR==1{print};$6 ~ /^'"${ns}"'/{print}')
-        else
-            res=$(kubectl "${args[@]}" get "${rsc}" 2>&1)
-        fi
-        [[ $? -eq 0 ]] || continue
-        [[ $(echo "$res" | wc -l ) -lt 2 ]] && continue
-        cat <<EOF
-
-----------------------------------------------------------------------
-$(upcase "$rsc")
-
-${res}
-EOF
-    done
-}
-
-# display only the names of any resource (e.g. kubectl get namespaces $knames)
-knames="-ojsonpath={.items..metadata.name}"
 
 function clean_orphan_replicasets()
 {
