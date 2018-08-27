@@ -586,40 +586,6 @@ function kssh()
     ssh "${user}@${node_ip}" "$@"
 }
 
-function krepl()
-{
-    local args=(-m1)
-    if [[ "$1" = '-c' ]]; then
-        shift; args+=('-c' $1); shift
-    fi
-    if [[ $# -lt 1 ]]; then
-        echo 'usage: krepl [-c <context>] <namespace>[/pod_match>] [<cmd> [<args...>]]' >&2
-        return 1
-    fi
-    local e m
-    if [[ "$1" == */* ]]; then
-        e=${1%%/*}
-        m=${1#*/}
-    else
-        e=$1
-        m='odd/odd'
-    fi
-    shift
-    case $e in
-        prod*) e=production;;
-        stag*) e=staging;;
-    esac
-    args+=(-n "$e" "$m" repl --)
-    if [[ "$*" == 'rcs' ]]; then
-        args+=(bin/rails c -s)
-    elif [[ -n "$*" ]]; then
-        args+=("$@")
-    else
-        args+=(bash)
-    fi
-    kubey "${args[@]}"
-}
-
 function clean_orphan_replicasets()
 {
     local kargs=(-n "$1")
