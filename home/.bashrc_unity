@@ -16,7 +16,8 @@ if [ -n "$EC2_ROLE" ]; then
     [ -f "$SECRET_FILE" ] && . "$SECRET_FILE" || unset SECRET_FILE
 fi
 
-export HEKETI_CLI_SERVER='http://gluster-api.us-west-1.unityops.net:8080'
+# export HEKETI_CLI_SERVER='http://gluster-api.us-west-1.unityops.net:8080'
+export SPEED=1
 
 if [[ -f "${HOME}/.ssh/id_github" ]]; then
     export GH_SSH_KEY_PATH="${HOME}/.ssh/id_github"
@@ -41,6 +42,16 @@ if $IAMME && $INTERACTIVE && ihave _z; then
     done
     shopt -u nullglob
 fi
+
+function rspf()
+{
+    SPEED=1 rake "parallel:spec[$*,,--fail-fast --format progress --format ParallelTests::RSpec::FailuresLogger --out tmp/failing_specs.log]"
+}
+
+function rspp()
+{
+    SPEED=1 rake "parallel:spec[$*,,--format progress --format ParallelTests::RSpec::FailuresLogger --out tmp/failing_specs.log]"
+}
 
 if $DARWIN; then
     function unity_bin()

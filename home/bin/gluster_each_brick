@@ -16,9 +16,8 @@ cmd="sudo gluster volume info \"${volume}\" | awk '/^Brick[0-9]/{split(\$2,a,\":
 
 for line in $(ssh "$gluster_host" "$cmd"); do
     eval "$line"
-    phost="${host%%.*}.private"
-    echo; echo "$phost $path"
-    ssh "$phost" "cd ${path} && sudo $@"
+    echo; echo "$host $path"
+    ssh "$host" "sudo bash -c \"cd '$path' && $@\""
 done
 
 function volfor()
