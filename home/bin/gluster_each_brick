@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# FIXME to report subvolumes!!! based on order listed in gluster
+
 if [[ $# -lt 3 ]]; then
     cat <<EOF >&2
 

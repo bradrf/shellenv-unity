@@ -26,6 +26,7 @@ alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database
 alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
 alias list_editor_args='find Editor/Src -type f -name "*.cpp" -print0 | xargs -0 grep -F HasARGV'
 alias gitsum='git ls-files -z | xargs -0 grep -F size | pipesum 10000 2'
+alias krcs='k repl ^odd rails c -s'
 
 if $IAMME && $INTERACTIVE && ihave _z; then
     zf="${_Z_DATA:-${HOME}/.z}"
@@ -103,7 +104,7 @@ if $DARWIN; then
             # unity requires full paths
             pdir="$(cd "$pdir" && pwd)"
             # this is how to open more than one unity project
-            args+=(-projectpath "$pdir")
+            args+=(-projectPath "$pdir")
         fi
         local ub
         ub="$(unity_bin)"
