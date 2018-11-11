@@ -1,0 +1,19 @@
+# NOTE: using "stuff" instead of "chdir" to ensure rvm loads gemsets properly
+
+screen -t collab
+stuff "cd /opt/unity/unitycloud-collab-service"
+
+screen -t helpers
+stuff "cd /opt/unity/unitycloud-helpers"
+
+#chdir "/opt/unity/webauth"
+#screen -t webauth bash -ic 'TRAVIS=1 RAILS_ENV=nooracle bash'
+
+chdir "${HOME}/work"
+screen -t k8s
+
+chdir "/opt/unity"
+screen -t ops bash -ic 'PATH="${PATH}:/opt/unity/unitycloud-ops/bin" bash'
+
+chdir "$HOME/work/editor"
+screen -t editor

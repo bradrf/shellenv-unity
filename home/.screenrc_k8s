@@ -1,0 +1,16 @@
+source "${HOME}/.screenrc_base"
+
+screen -t prd-usc1
+stuff "k u -s prd-usc1"
+
+screen -t prd-euw1
+stuff "k u -s prd-euw1"
+
+screen -t prd-ape1
+stuff "k u -s prd-ape1"
+
+screen -t stg
+stuff "k u -s stg-usc1"
+
+screen -t test
+stuff "k u -s test-usc1"
