@@ -26,7 +26,9 @@ alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database
 alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
 alias list_editor_args='find Editor/Src -type f -name "*.cpp" -print0 | xargs -0 grep -F HasARGV'
 alias gitsum='git ls-files -z | xargs -0 grep -F size | pipesum 10000 2'
-alias krcs='k repl ^odd rails c -s'
+alias kodd='k repl ^odd'
+alias krcs='kodd rails c -s'
+alias krc='kodd rails c'
 
 if $IAMME && $INTERACTIVE && ihave _z; then
     zf="${_Z_DATA:-${HOME}/.z}"
@@ -841,8 +843,71 @@ function artifactory_latest()
 {
     if [[ $# -ne 1 ]]; then
         echo 'artifactory_latest <image>' >&2
-        return 1;
+        return 1
     fi
     curl -qfs "https://artifactory.eu-cph-1.unityops.net:5010/buildpipe-registry1/${1}/" | \
         awk -F\" '$2 ~ /^[0-9]*\/$/ {gsub(/\/$/,"",$2);if($2 + 0 > v) v = $2}END{print v}'
+}
+
+KCTX_ZONE_MAP=()
+
+function gsetbsn()
+{
+    local jpn='.metadata.annotations.ingress\.kubernetes\.io/backends'
+    if [[ $# -lt 1 || $# -gt 1 ]]; then
+        # k ing  '-ojsonpath={.items[*].metadata.annotations.ingress\.kubernetes\.io/backends}'
+        jpn=".items[*]${jpn}"
+    fi
+    GBSN=$(k ing "$@" -o"jsonpath={${jpn}}" | cut -d\" -f2)
+    if [[ -z "$GBSN" ]]; then
+        echo 'Unknown ingress name' >&2
+        return 1
+    fi
+}
+
+
+function gsetregion()
+{
+    local s='
+BEGIN {
+  a["usc1"] = "us-central1"
+  a["euw1"] = "europe-west1"
+  a["ape1"] = "asia-east1"
+}
+END { print a[v] }
+'
+    local ctx=$(k ctx)
+    GREGION=$(awk "$s" v="${ctx##*-}" </dev/null)
+    if [[ -z "$GREGION" ]]; then
+        echo "Unknown region for \"${ctx}\"" >&2
+        return 1
+    fi
+}
+
+# gcloud beta compute network-endpoint-groups list-network-endpoints k8s1-becc5f7b-neg-demo-neg-demo-svc-80-7dcce984 --zone us-central1-$z & ); done; wait
+
+function gnegs()
+{
+    gsetregion || return
+    gsetbsn "$@" || return
+    (
+        for zone in $(gcloud compute zones list --filter "region=${GREGION}" --format 'value(selfLink.scope())'); do
+            ( gcloud beta compute network-endpoint-groups list-network-endpoints \
+                     --zone "$zone" "$GBSN" 2>&1 | prefix "${zone}: " ) &
+        done
+        wait
+    )
+}
+
+function gbs()
+{
+    gsetbsn "$@" || return
+    gcloud beta compute backend-services describe "$GBSN" --global
+}
+
+function ghealth()
+{
+    gsetbsn "$@" || return
+    k ing w
+    gcloud beta compute backend-services get-health "$GBSN" --global
 }
