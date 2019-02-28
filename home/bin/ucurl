@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION='0.2.0'
+VERSION='0.3.0'
 VERBOSITY=0
 HEADERS=()
 PRETTY=false
@@ -8,9 +8,14 @@ EVAL=false
 FOLLOW=false
 INSECURE=false
 LOGIN=false
+ME=false
 SAVE=''
 
 # TODO: FIX SSL with either        --resolve <host:port:address> or --insecure
+# TODO: add "ab" support (i.e. login but use ab instead of curl w/ same header args)
+# TODO: call users/me after auth to cache primary org and user id
+# TODO: add "orgs" and "projects" abbrev helpers (need above cached primary org)
+#       (should not report archived projects)
 
 while true; do
     case "$1" in
@@ -39,6 +44,7 @@ if [[ $# -lt 3 ]]; then
     cat <<EOF >&2
 
 usage: ${BN} [<options>] <cloud_env> <method> <url> [<body> | <file>]
+       ${BN} [<options>] <cloud_env> get me
 
   ${BN} (v${VERSION}) is a tool to automatically handle authentication and URL selection when
         working with Unity HTTP APIs (while keeping dependencies at a minimum, requiring only bash,
@@ -63,7 +69,10 @@ usage: ${BN} [<options>] <cloud_env> <method> <url> [<body> | <file>]
   METHOD:      get | post | put | del[ete]
 
   URL:         provide a full URL -- may contain keys from the CLOUD ENV config retrieved
-               (use a value of "config" to dump the set of key/values available in CLOUD ENV)
+
+    ABBREV:
+      config     dump the set of key/values available in CLOUD ENV
+      me         show info about current user for CLOUD ENV
 
   BODY:        provide the value sent using curl's data-binary option (assumes JSON format)
   FILE:        provide a filename to read and send using curl's data-binary option (detects content type)
@@ -146,6 +155,10 @@ esac
 shift
 
 URL="$1"; shift
+if [[ "$URL" = 'me' ]]; then
+    ME=true
+    URL=\${GENESIS_API_URL}/v1/core/api/users/me "$@"
+fi
 
 if [[ $# -gt 0 ]]; then
     if [[ -f "$1" ]]; then
@@ -238,7 +251,7 @@ EOF
 
 function response_to_key_values() {
     echo "$RESPONSE" | \
-python -c 'import sys,json,re; \
+        python -c 'import sys,json,re; \
 print(";".join("%s=\"%s\"" % (re.sub(r"[\W_]+","_",k.upper()),v) for (k,v) in json.load(sys.stdin).items()))'
 }
 
@@ -280,6 +293,8 @@ function get_access_token() {
         echo "ACCESS_TOKEN='${ACCESS_TOKEN}';REFRESH_TOKEN='${REFRESH_TOKEN}';EXPIRES_AT='${EXPIRES_AT}';" > "$cache_fn"
         echo "Access token expires in ${EXPIRES_IN} seconds" >&2
     fi
+
+    $ME && echo "ACCESS_TOKEN: ${ACCESS_TOKEN}"
 }
 
 ######################################################################

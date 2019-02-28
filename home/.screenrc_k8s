@@ -1,3 +1,5 @@
+sessionname k8s
+
 source "${HOME}/.screenrc_base"
 
 screen -t prd-usc1

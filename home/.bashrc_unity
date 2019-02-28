@@ -26,9 +26,10 @@ alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database
 alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
 alias list_editor_args='find Editor/Src -type f -name "*.cpp" -print0 | xargs -0 grep -F HasARGV'
 alias gitsum='git ls-files -z | xargs -0 grep -F size | pipesum 10000 2'
+
 alias kodd='k repl ^odd'
-alias krcs='kodd rails c -s'
-alias krc='kodd rails c'
+alias krcs='k -n sst-collab repl ^odd rails c -s'
+alias krc='k -n sst-collab repl ^odd rails c'
 
 if $IAMME && $INTERACTIVE && ihave _z; then
     zf="${_Z_DATA:-${HOME}/.z}"
@@ -200,26 +201,23 @@ function volfor()
 
 function beanview()
 {
-    if [ $# -ne 1 ]; then
-        echo 'usage: beanstalkd_view <host>' >&2
+    local walk=false
+    if [[ "$1" = '--walk' ]]; then
+        shift; walk=true
+    fi
+
+    if [[ $# -ne 1 ]]; then
+        echo 'usage: beanview [--walk] <beanstalk_pod_index>' >&2
         return 1
     fi
 
-    local privip
-    if [[ $1 = production-* || $1 = staging-* ]]; then
-        privip=`grep -A1 -F $1.private ~/.ssh/config | tail -1 | awk '{print $2}'`
-    else
-        privip=127.0.0.1
-    fi
-
-    local port=$(( ((RANDOM<<15)|RANDOM) % 63001 + 2000 ))
-    \ssh -L$port:$privip:11300 -o 'ExitOnForwardFailure yes' -nfN $1 || return $?
-    local sshpid=`pgrep -f ExitOnForwardFailure`
-
-    BEANSTALK_URL="beanstalk://localhost:$port/" \beanstalkd_view -F
-    kill $sshpid
+    k -n sst-common port-forward pod/beanstalkd-$1 11300:11300 &
+    sleep 3
+    if $walk; then beanwalker; else beanstool stats; fi
+    local rc=$?
+    pkill -f -- "sst-common port-forward pod/beanstalkd-$1"
+    return $rc
 }
-complete -F _ssh beanview
 
 function invalidate_cdn()
 {
@@ -242,9 +240,6 @@ function invalidate_cdn()
 if ihave papertrail; then
     alias pt-prod='pt -g "Collab Production"'
 fi
-
-# TODO: add helper to cp files
-# for h in `host 'production-(jobs-)?collab(-jobs)?-\d+$' | awk '{print $1 ".private"}'`; do ( scp ${h}:/opt/unity/unity-collab-service/current/log/production.log /Users/brad/work/logs/${h}-rails.log & ); done
 
 if [ "$(id -un)" = 'nobody' ]; then
     function collab_exec()
@@ -813,11 +808,6 @@ function s3tail_collab()
     done
 }
 
-#declare -A newmap
-#newmap[name]="Irfan Zulfiqar"
-#newmap[designation]=SSE
-#newmap[company]="My Own Company"
-
 function s3ls_region()
 {
     if [[ $# -lt 2 ]]; then
@@ -884,14 +874,44 @@ END { print a[v] }
     fi
 }
 
-# gcloud beta compute network-endpoint-groups list-network-endpoints k8s1-becc5f7b-neg-demo-neg-demo-svc-80-7dcce984 --zone us-central1-$z & ); done; wait
+function gkloud()
+{
+    local ctx=$(k ctx)
+    local s='
+BEGIN {
+  a["prd-ape1"] = "unity-gke-prd"
+  a["prd-euw1"] = "unity-gke-prd"
+  a["prd-usc1"] = "unity-gke-prd"
+  a["stg-ape1"] = "unity-gke-stg"
+  a["stg-euw1"] = "unity-gke-stg"
+  a["stg-usc1"] = "unity-gke-stg"
+  a["test-ape1"] = "unity-gke-test"
+  a["test-euw1"] = "unity-gke-test"
+  a["test-usc1"] = "unity-gke-test"
+  a["tcmn-usc1"] = "unity-cs-common-test"
+}
+END { print a[v] }
+'
+    local ctx=$(k ctx) proj=$(awk "$s" v="$ctx" </dev/null)
+    if [[ -z "$proj" ]]; then
+        echo "Unknown project ID for \"${ctx}\"" >&2
+        return 1
+    fi
+    echo "gkloud --project$(printf ' %q' "$proj" "$@")" >&2
+    gcloud --project "$proj" "$@"
+}
+
+function gkssh()
+{
+    gkloud compute ssh --internal-ip "$@"
+}
 
 function gnegs()
 {
     gsetregion || return
     gsetbsn "$@" || return
     (
-        for zone in $(gcloud compute zones list --filter "region=${GREGION}" --format 'value(selfLink.scope())'); do
+        for zone in $(gkloud compute zones list --filter "region=${GREGION}" --format 'value(selfLink.scope())'); do
             ( gcloud beta compute network-endpoint-groups list-network-endpoints \
                      --zone "$zone" "$GBSN" 2>&1 | prefix "${zone}: " ) &
         done
@@ -902,12 +922,13 @@ function gnegs()
 function gbs()
 {
     gsetbsn "$@" || return
-    gcloud beta compute backend-services describe "$GBSN" --global
+    gkloud beta compute backend-services describe "$GBSN" --global
 }
 
 function ghealth()
 {
     gsetbsn "$@" || return
     k ing w
-    gcloud beta compute backend-services get-health "$GBSN" --global
+    k d ep | grep -E '^Name:|^ *Addresses'
+    gkloud beta compute backend-services get-health "$GBSN" --global
 }
