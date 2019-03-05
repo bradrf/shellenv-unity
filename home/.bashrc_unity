@@ -98,7 +98,7 @@ if $DARWIN; then
     }
 
     # if last arg is a path, will open it as a project
-    function unity()
+    function unity_direct()
     {
         local pdir args=("$@")
         if [[ ${#args[@]} -gt 0 && -d "${args[${#args[@]}-1]}" ]]; then
@@ -113,6 +113,26 @@ if $DARWIN; then
         ub="$(unity_bin)"
         echo "${ub} $(shellwords "${args[@]}") >&2"
         tailrun -p "predate $ISO8601_FMT" "${HOME}/Library/Logs/Unity/Editor.log" "${ub}" "${args[@]}"
+    }
+
+    function unity_hub()
+    {
+        if [[ $# -lt 1 ]]; then
+            echo 'usage: unity_hub { prod | stag | dev | local }'
+            return 1
+        fi
+        local cloud_env=$1; shift
+        case "$cloud_env" in
+            prod*) cloud_env=production;;
+            stag*) cloud_env=staging;;
+            dev*|andy*) cloud_env=dev;;
+            local) cloud_env=local;;
+            *)
+                echo "unknown cloud env name: ${cloud_env}" >&2
+                return 2
+        esac
+        tailrun -p "predate $ISO8601_FMT" "${HOME}/Library/Logs/Unity/Editor.log" \
+                /Applications/Unity\ Hub.app/Contents/MacOS/Unity\ Hub -- --cloudEnvironment "${cloud_env}"
     }
 fi
 
