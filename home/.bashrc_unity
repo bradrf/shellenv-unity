@@ -22,6 +22,15 @@ if [[ -f "${HOME}/.ssh/id_github" ]]; then
     export GH_SSH_KEY=$GH_SSH_KEY_PATH
 fi
 
+# ensure collab's bundler is used
+RVM_PIN_RUBY244GLOBAL+=(bundler:$(sed -n '/^BUNDLED WITH/{n;p;}' \
+                                      ~/work/unitycloud-collab-service/Gemfile.lock | \
+                                      tr -d '[:space:]'))
+
+# must be in "root" not in @global for emacs to work
+RVM_PIN_DEFAULT+=(rubocop:$(awk '/^ *rubocop /{gsub(/[()]/,"",$2); print $2; exit}' \
+                                ~/work/unitycloud-collab-service/Gemfile.lock))
+
 alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database unity_cloud_collab"; rake db:create db:migrate'
 alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
 alias list_editor_args='find Editor/Src -type f -name "*.cpp" -print0 | xargs -0 grep -F HasARGV'
@@ -917,7 +926,7 @@ END { print a[v] }
         echo "Unknown project ID for \"${ctx}\"" >&2
         return 1
     fi
-    echo "gkloud --project$(printf ' %q' "$proj" "$@")" >&2
+    echo "gcloud --project$(printf ' %q' "$proj" "$@")" >&2
     gcloud --project "$proj" "$@"
 }
 
@@ -932,7 +941,7 @@ function gnegs()
     gsetbsn "$@" || return
     (
         for zone in $(gkloud compute zones list --filter "region=${GREGION}" --format 'value(selfLink.scope())'); do
-            ( gcloud beta compute network-endpoint-groups list-network-endpoints \
+            ( gkloud beta compute network-endpoint-groups list-network-endpoints \
                      --zone "$zone" "$GBSN" 2>&1 | prefix "${zone}: " ) &
         done
         wait
@@ -949,6 +958,69 @@ function ghealth()
 {
     gsetbsn "$@" || return
     k ing w
-    k d ep | grep -E '^Name:|^ *Addresses'
-    gkloud beta compute backend-services get-health "$GBSN" --global
+    k d ep | grep -E '^Name:|^ *Addresses' | cat
+    gkloud beta compute backend-services get-health "$GBSN" --global | \
+        match -g \ HEALTHY -b UNHEALTHY
+}
+
+function heydist()
+{
+    local opts=()
+
+    while [[ $# -gt 2 && "$1" != http* ]]; do
+        opts+=("$1")
+        shift
+    done
+
+    if [[ $# -lt 2 ]]; then
+        cat <<EOF >&2
+usage: heydist [<hey_option>...] <base_uri> <path> [<path>...]
+EOF
+        return 1
+    fi
+
+    local base=$1; shift
+
+    local path
+    for path in "$@"; do
+        hey "${opts[@]}" "${base}/${path}" &
+    done
+
+    wait
+}
+
+function generate_baton_csv()
+{
+    local hdrs
+    while true; do
+        if [[ "$1" = '-H' ]]; then
+            shift; hdrs+=",$1"; shift
+        else
+            break
+        fi
+    done
+
+    if [[ $# -lt 4 ]]; then
+        cat <<EOF >&2
+usage: generate_baton_csv [-H <header>] <csv> <env> <base_uri> <path> [<path> ...]
+EOF
+        return 1
+    fi
+
+    local csv=$1; shift
+    local env=$1; shift
+    local base=$1; shift
+
+    local auth=$(ucurl $env get auth)
+
+    local guid path cnt=0
+    for guid in $(ucurl $env get \${GENESIS_API_URL}/v1/core/api/projects | \
+      jq -r '.projects[] | select (.archived | not) | select (.service_flags.collab) | .guid'); do
+        for path in "$@"; do
+            echo "GET,${base}/api/projects/${guid}/${path},,${auth}${hdrs}"
+            (( ++cnt ))
+        done
+    done > "$csv"
+
+    echo "Stored ${cnt} requests in ${csv}"
 }

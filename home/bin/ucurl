@@ -9,6 +9,7 @@ FOLLOW=false
 INSECURE=false
 LOGIN=false
 ME=false
+AUTH_HDR=false
 SAVE=''
 
 # TODO: FIX SSL with either        --resolve <host:port:address> or --insecure
@@ -44,7 +45,7 @@ if [[ $# -lt 3 ]]; then
     cat <<EOF >&2
 
 usage: ${BN} [<options>] <cloud_env> <method> <url> [<body> | <file>]
-       ${BN} [<options>] <cloud_env> get me
+       ${BN} [<options>] <cloud_env> get { me | auth }
 
   ${BN} (v${VERSION}) is a tool to automatically handle authentication and URL selection when
         working with Unity HTTP APIs (while keeping dependencies at a minimum, requiring only bash,
@@ -155,10 +156,6 @@ esac
 shift
 
 URL="$1"; shift
-if [[ "$URL" = 'me' ]]; then
-    ME=true
-    URL=\${GENESIS_API_URL}/v1/core/api/users/me "$@"
-fi
 
 if [[ $# -gt 0 ]]; then
     if [[ -f "$1" ]]; then
@@ -172,6 +169,15 @@ if [[ $# -gt 0 ]]; then
     shift
 else
     BODY_SIZE=0
+
+    case "$URL" in
+        me)   ME=true ;;
+        auth) AUTH_HDR=true ;;
+    esac
+
+    if $ME || $AUTH_HDR; then
+        URL=\${GENESIS_API_URL}/v1/core/api/users/me
+    fi
 fi
 
 umask 0077 # protect files like the user credentials cache to be accessible only by current user
@@ -293,8 +299,6 @@ function get_access_token() {
         echo "ACCESS_TOKEN='${ACCESS_TOKEN}';REFRESH_TOKEN='${REFRESH_TOKEN}';EXPIRES_AT='${EXPIRES_AT}';" > "$cache_fn"
         echo "Access token expires in ${EXPIRES_IN} seconds" >&2
     fi
-
-    $ME && echo "ACCESS_TOKEN: ${ACCESS_TOKEN}"
 }
 
 ######################################################################
@@ -323,6 +327,13 @@ else
         get_access_token
         HEADERS+=("Authorization: Bearer ${ACCESS_TOKEN}")
     fi
+
+    if $AUTH_HDR; then
+        echo "Authorization: Bearer ${ACCESS_TOKEN}"
+        exit
+    fi
+
+    $ME && echo "ACCESS_TOKEN: ${ACCESS_TOKEN}"
 
     # interpolate the URL
     eval "final_url=\"$URL\""
