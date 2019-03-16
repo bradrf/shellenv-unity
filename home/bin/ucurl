@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION='0.3.0'
+VERSION='0.3.1'
 VERBOSITY=0
 HEADERS=()
 PRETTY=false
@@ -13,24 +13,20 @@ AUTH_HDR=false
 SAVE=''
 
 # TODO: FIX SSL with either        --resolve <host:port:address> or --insecure
-# TODO: add "ab" support (i.e. login but use ab instead of curl w/ same header args)
-# TODO: call users/me after auth to cache primary org and user id
-# TODO: add "orgs" and "projects" abbrev helpers (need above cached primary org)
-#       (should not report archived projects)
 
 while true; do
     case "$1" in
-        -v) (( ++VERBOSITY ));;
-        -H) shift; HEADERS+=("$1");;
-        -host) shift; HOST_OVERRIDE=$1;;
-        -pretty) PRETTY=true;;
-        -eval) EVAL=true;;
-        -follow) FOLLOW=true;;
-        -insecure) INSECURE=true;;
-        -login) LOGIN=true;;
-        -save) shift; SAVE=$1;;
+        -v)            (( ++VERBOSITY ));;
+        -H)     shift; HEADERS+=("$1");;
+        -host)  shift; HOST_OVERRIDE=$1;;
+        -pretty)       PRETTY=true;;
+        -eval)         EVAL=true;;
+        -follow)       FOLLOW=true;;
+        -insecure)     INSECURE=true;;
+        -login)        LOGIN=true;;
+        -save)  shift; SAVE=$1;;
         -limit) shift; LIMIT=$1;;
-        *) break;;
+        *)      break;;
     esac
     shift
 done
@@ -318,7 +314,8 @@ else
     eval_response # loads config keys as interpolation variables
 
     if [[ -n "$HOST_OVERRIDE" ]]; then
-        final_host="$(eval echo \"${HOST_OVERRIDE}\" | awk -F/ '{print $3}')" # strip out host if a URI
+        # strip out host if a URI
+        final_host="$(eval echo \"${HOST_OVERRIDE}\" | awk -F/ '{print $3}')"
         [[ -z "$final_host" ]] && final_host="$HOST_OVERRIDE"
         HEADERS+=("Host: ${final_host}")
     fi
@@ -337,6 +334,11 @@ else
 
     # interpolate the URL
     eval "final_url=\"$URL\""
+
+    if [[ "$final_url" != 'http'* ]]; then
+        echo "Unknown URL: $final_url" >&2
+        exit 6
+    fi
 
     if [[ -n "$SAVE" ]]; then
         simple_curl -save "$SAVE" "$METHOD" "$final_url" "$BODY" "${HEADERS[@]}"
