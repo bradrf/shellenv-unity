@@ -140,6 +140,7 @@ if $DARWIN; then
                 echo "unknown cloud env name: ${cloud_env}" >&2
                 return 2
         esac
+        echo /Applications/Unity\ Hub.app/Contents/MacOS/Unity\ Hub -- --cloudEnvironment "${cloud_env}" >&2
         tailrun -p "predate $ISO8601_FMT" "${HOME}/Library/Logs/Unity/Editor.log" \
                 /Applications/Unity\ Hub.app/Contents/MacOS/Unity\ Hub -- --cloudEnvironment "${cloud_env}"
     }
@@ -903,9 +904,8 @@ END { print a[v] }
     fi
 }
 
-function gkloud()
+function gsetproj()
 {
-    local ctx=$(k ctx)
     local s='
 BEGIN {
   a["prd-ape1"] = "unity-gke-prd"
@@ -921,13 +921,19 @@ BEGIN {
 }
 END { print a[v] }
 '
-    local ctx=$(k ctx) proj=$(awk "$s" v="$ctx" </dev/null)
-    if [[ -z "$proj" ]]; then
-        echo "Unknown project ID for \"${ctx}\"" >&2
+    local ctx=$(k ctx)
+    GPROJ=$(awk "$s" v="$ctx" </dev/null)
+    if [[ -z "$GPROJ" ]]; then
+        echo "Unknown project for \"${ctxt}\""
         return 1
     fi
-    echo "gcloud --project$(printf ' %q' "$proj" "$@")" >&2
-    gcloud --project "$proj" "$@"
+}
+
+function gkloud()
+{
+    gsetproj
+    echo "gcloud --project$(printf ' %q' "$GPROJ" "$@")" >&2
+    gcloud --project "$GPROJ" "$@"
 }
 
 function gkssh()
@@ -1016,6 +1022,41 @@ EOF
     local guid path cnt=0
     for guid in $(ucurl $env get \${GENESIS_API_URL}/v1/core/api/projects | \
       jq -r '.projects[] | select (.archived | not) | select (.service_flags.collab) | .guid'); do
+        for path in "$@"; do
+            echo "GET,${base}/api/projects/${guid}/${path},,${auth}${hdrs}"
+            (( ++cnt ))
+        done
+    done > "$csv"
+
+    echo "Stored ${cnt} requests in ${csv}"
+}
+
+function generate_baton_csv_all_projects()
+{
+    local hdrs
+    while true; do
+        if [[ "$1" = '-H' ]]; then
+            shift; hdrs+=",$1"; shift
+        else
+            break
+        fi
+    done
+
+    if [[ $# -lt 3 ]]; then
+        cat <<EOF >&2
+usage: generate_baton_csv [-H <header>] <csv> <base_uri> <path> [<path> ...]
+EOF
+        return 1
+    fi
+
+    local csv=$1; shift
+    local base=$1; shift
+
+    local build_secret=$(k each ^odd 'echo $BUILD_SERVICE_SECRET')
+    local auth="Authorization: Basic $(base64creds build "$build_secret")"
+
+    local guid path cnt=0
+    for guid in $(k each ^odd "rails r 'puts Repo.where(%q(archive_state=0 and revision_count>0)).pluck(:project_fk)'" | grep -v '{'); do
         for path in "$@"; do
             echo "GET,${base}/api/projects/${guid}/${path},,${auth}${hdrs}"
             (( ++cnt ))

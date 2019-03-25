@@ -86,6 +86,10 @@ EOF
       # ucurl dev get \\\${GENESIS_API_URL}/v1/core/api/orgs/bradandy/projects | \\
           awk -F\\" '/"name"/{n=\$4};/guid/{g=\$4};/archived.*false/{print g,n}'
 
+    list all unarchived collab projects GUIDs across all orgs:
+      # dev get \\\${GENESIS_API_URL}/v1/core/api/projects | \\
+          jq -r '.projects[] | select (.archived | not) | select (.service_flags.collab) | .guid'
+
     create a project:
       # ucurl dev post \\\${GENESIS_API_URL}/v1/core/api/projects '{"name":"my-new-project"}'
 
