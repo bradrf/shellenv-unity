@@ -917,6 +917,8 @@ BEGIN {
   a["test-ape1"] = "unity-gke-test"
   a["test-euw1"] = "unity-gke-test"
   a["test-usc1"] = "unity-gke-test"
+  a["pcmn-usc1"] = "unity-cs-common-prd"
+  a["scmn-usc1"] = "unity-cs-common-stg"
   a["tcmn-usc1"] = "unity-cs-common-test"
 }
 END { print a[v] }
