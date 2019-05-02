@@ -62,3 +62,9 @@ disabletls10warning = true
 #ono-proxy-seattle.hq.unity3d.com:fingerprints = sha256:7a:1a:ad:1d:f4:d1:da:22:b9:fe:2c:67:ab:00:f6:cf:20:74:3c:a5:98:7e:2b:5f:df:bf:45:6c:18:71:dd:b5
 ono-proxy-seattle.hq.unity3d.com:fingerprints = sha256:67:e7:c9:d1:8a:83:19:25:95:8f:22:a4:72:f3:c7:78:0b:fe:6c:5f:84:f2:3a:a5:4f:bd:17:d7:74:59:b4:bd
 
+# see list of "predicates" for function definitions: https://www.mercurial-scm.org/doc/hg.1.html#id15
+# [alias]
+# BETTER: use common ancestor (esp if you've merged in trunk--this is what ono shows)...
+# # hg log -l1 -r 'ancestor(trunk,editor/collab/support-collab-accelerator)'
+# revision of branch point: parents(min(branch(editor/collab/support-collab-accelerator)))
+# difftrunk = diff -r 'parents(min(branch(editor/collab/support-collab-accelerator)))'

@@ -31,6 +31,9 @@ RVM_PIN_RUBY244GLOBAL+=(bundler:$(sed -n '/^BUNDLED WITH/{n;p;}' \
 RVM_PIN_DEFAULT+=(rubocop:$(awk '/^ *rubocop /{gsub(/[()]/,"",$2); print $2; exit}' \
                                 ~/work/unitycloud-collab-service/Gemfile.lock))
 
+# override default gcloud.sh behavior of searching all projects
+GPROJ_EACH_REGEX='^unity-cs-common-|^unity-cs-collab-|^unity-gke-'
+
 alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database unity_cloud_collab"; rake db:create db:migrate'
 alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
 alias list_editor_args='find Editor/Src -type f -name "*.cpp" -print0 | xargs -0 grep -F HasARGV'
@@ -126,8 +129,16 @@ if $DARWIN; then
 
     function unity_hub()
     {
+        local app='/Applications/Unity Hub.app/Contents/MacOS/Unity Hub'
+        if [[ "$1" = '--beta' ]]; then
+            shift; app='/Applications/Unity Hub beta.app/Contents/MacOS/Unity Hub beta'
+        fi
+        local logs=false
+        if [[ "$1" = '--event-logs' ]]; then
+            shift; logs=true
+        fi
         if [[ $# -lt 1 ]]; then
-            echo 'usage: unity_hub { prod | stag | dev | local }'
+            echo 'usage: unity_hub [--beta] [--event-logs] { prod | stag | dev | local }'
             return 1
         fi
         local cloud_env=$1; shift
@@ -140,9 +151,13 @@ if $DARWIN; then
                 echo "unknown cloud env name: ${cloud_env}" >&2
                 return 2
         esac
-        echo /Applications/Unity\ Hub.app/Contents/MacOS/Unity\ Hub -- --cloudEnvironment "${cloud_env}" >&2
-        tailrun -p "predate $ISO8601_FMT" "${HOME}/Library/Logs/Unity/Editor.log" \
-                /Applications/Unity\ Hub.app/Contents/MacOS/Unity\ Hub -- --cloudEnvironment "${cloud_env}"
+        local args=("$app" -- --cloudEnvironment "${cloud_env}")
+        $logs && printf 'export enableCollabEventLogs=%s; ' $logs
+        printf '%q ' "${args[@]}" >&2; echo >&2
+        (
+            export enableCollabEventLogs=$logs
+            tailrun -p "predate $ISO8601_FMT" "${HOME}/Library/Logs/Unity/Editor.log" "${args[@]}"
+        )
     }
 fi
 
