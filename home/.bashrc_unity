@@ -34,6 +34,11 @@ RVM_PIN_DEFAULT+=(rubocop:$(awk '/^ *rubocop /{gsub(/[()]/,"",$2); print $2; exi
 # override default gcloud.sh behavior of searching all projects
 GPROJ_EACH_REGEX='^unity-cs-common-|^unity-cs-collab-|^unity-gke-'
 
+# provide a filter for shared cluster listing when building ssh config
+GSSH_FILTER_UNITYGKEPRD='-sst-'
+GSSH_FILTER_UNITYGKESTG='-sst-'
+GSSH_FILTER_UNITYGKETEST='-sst-'
+
 alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database unity_cloud_collab"; rake db:create db:migrate'
 alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
 alias list_editor_args='find Editor/Src -type f -name "*.cpp" -print0 | xargs -0 grep -F HasARGV'
@@ -984,6 +989,24 @@ function ghealth()
     k d ep | grep -E '^Name:|^ *Addresses' | cat
     gkloud beta compute backend-services get-health "$GBSN" --global | \
         match -g \ HEALTHY -b UNHEALTHY
+}
+
+function gvol()
+{
+    if [[ $# -ne 2 ]]; then
+        echo 'usage: gvol <gluster_volume_name> <remote_command>' >&2
+        return 1
+    fi
+
+    local ip
+    (
+        for line in $(gcloud compute instances list --filter="labels.gluster_volume_name=$1" \
+                             --format='csv[no-heading](name,networkInterfaces[].networkIP)'); do
+            IFS=, read -r -a info <<< "$line"
+            ( ssh -o StrictHostKeyChecking=no "${info[1]}" -- "sudo $2" 2>&1 | prefix "${info[0]}: " ) &
+        done
+        wait
+    )
 }
 
 function heydist()
