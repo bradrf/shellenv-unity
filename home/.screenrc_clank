@@ -12,8 +12,8 @@ stuff "cd /opt/unity/unitycloud-helpers"
 chdir "${HOME}/work"
 screen -t k8s
 
-chdir "/opt/unity"
-screen -t ops bash -ic 'PATH="${PATH}:/opt/unity/unitycloud-ops/bin" bash'
+chdir "${HOME}/work/ops"
+screen -t ops
 
-chdir "$HOME/work/editor"
+chdir "${HOME}/work/editor"
 screen -t editor

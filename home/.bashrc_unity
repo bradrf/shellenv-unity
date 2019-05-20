@@ -1009,6 +1009,22 @@ function gvol()
     )
 }
 
+function healstats()
+{
+    local vn=$(df -t xfs | sed -n '/volume/{s/^.*\(volume[[:digit:]]*\).*$/\1/p}')
+    local cmd='if (e!="") { print "brick-"b,"on",h,s" => "e,"healed="hc,"split="sc,"failed="fc }'
+    sudo gluster volume heal "$vn" statistics | awk '
+/^Crawl statistics/ { '"${cmd}"'; b=$NF }
+        /^Hostname/ { h=$NF }
+        /^Starting/ { sub(/^[^:]*: /,""); s=$0 }
+      /in progress/ { e=$0 }
+          /^Ending/ { sub(/^[^:]*: /,""); e=$0 }
+           /healed/ { hc=$NF }
+      /split-brain/ { sc=$NF }
+           /failed/ { fc=$NF }
+                END { '"${cmd}"' }'
+}
+
 function heydist()
 {
     local opts=()
@@ -1104,4 +1120,44 @@ EOF
     done > "$csv"
 
     echo "Stored ${cnt} requests in ${csv}"
+}
+
+function generate_metafiles()
+{
+    if [[ $# -lt 1 ]]; then
+        echo 'usage: generate_metafiles <dir> [<dir> ...]' >&2
+        return 1
+    fi
+
+    local dir item ext tfn mfn
+    for dir in "$@"; do
+
+        # read using NUL terminators to properly handle UTF-8 endcoding of file names
+        while read -r -d $'\0' item; do
+
+            mfn="${item}.meta"
+            [[ -f "${mfn}" ]] && continue
+
+            if [[ -d "${item}" ]]; then
+                ext=''
+                tfn="${HOME}/.unity_metafile_templates/__DIRECTORY__"
+            else
+                ext="${item##*.}"
+                tfn="${HOME}/.unity_metafile_templates/${ext}"
+            fi
+
+            if [[ ! -f "${tfn}" ]]; then
+                echo
+                echo "Unhandled extension: ${item}" >&2
+                continue
+            fi
+
+            printf "%$((COLUMNS/2))s\r%s" ' ' "${mfn}"
+            local guid="$(ruby -r digest/md5 -e 'puts Digest::MD5.hexdigest("#{rand()}#{Time.now.to_f}#{$$}")')"
+            sed 's/^guid:.*$/guid: '"${guid}"'/' "${tfn}" > "${mfn}"
+
+        done < <(find "${dir}" -not \( -name '.' -o -name '..' -o -name '*.meta' \) -print0)
+    done
+
+    echo
 }
