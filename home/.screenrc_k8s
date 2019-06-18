@@ -16,6 +16,3 @@ stuff "k u -s stg-usc1"
 
 screen -t test
 stuff "k u -s test-usc1"
-
-screen -t aws
-stuff "k u -s prod-usw1"
