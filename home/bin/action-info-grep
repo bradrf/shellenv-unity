@@ -1,0 +1,23 @@
+#!/usr/bin/env ruby
+
+require 'json'
+
+if ARGV.size != 2
+  $stderr.puts 'usage'
+  exit 1
+end
+
+re = Regexp.new(ARGV.shift, Regexp::IGNORECASE)
+j = File.open(ARGV.shift) { |f| j = JSON.load(f) }
+
+sum = Hash.new{ |h, k| h[k] = 0 }
+j['data'].each_key do |act|
+  items = j['data'][act]
+  next unless items.is_a? Enumerable
+  items.each do |item|
+    sum[act] += 1
+    puts "#{act}:", JSON.pretty_generate(item) if item.values.any?(re)
+  end
+end
+
+puts '----------------------------------------', 'summary:', JSON.pretty_generate(sum)
