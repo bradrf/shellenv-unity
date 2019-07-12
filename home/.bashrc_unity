@@ -286,15 +286,27 @@ function beanview()
     fi
 
     if [[ $# -ne 1 ]]; then
-        echo 'usage: beanview [--walk] <beanstalk_pod_index>' >&2
+        echo 'usage: beanview [--walk] { <beanstalk_pod_index> | all }' >&2
         return 1
     fi
 
-    k -n sst-common port-forward pod/beanstalkd-$1 11300:11300 &
-    sleep 3
-    if $walk; then beanwalker; else beanstool stats; fi
-    local rc=$?
-    pkill -f -- "sst-common port-forward pod/beanstalkd-$1"
+    local indices
+    if [[ "$1" = 'all' ]]; then
+        indices=$(_KQUIET=true k -n sst-common po $knames | awk -F- '/^beanstalkd-/{print $2}')
+    else
+        indices=("$1")
+    fi
+
+    local i name rc=0
+    for i in $indices; do
+        name="pod/beanstalkd-$i"
+        k -n sst-common port-forward "${name}" 11300:11300 &
+        sleep 3
+        if $walk; then beanwalker; else beanstool stats; fi
+        rc=$?
+        pkill -f -- "sst-common port-forward ${name}"
+    done
+
     return $rc
 }
 
@@ -657,6 +669,17 @@ function klean_evictions()
                 `'b.each{|(k,v)|'`
                   `"puts %x{kubectl --context ${ctx} delete pod -n #{k} #{v.join(' ')}}"`
                 `'}'
+}
+
+# copy secrets from one context into the current namespace
+function kopysecrets()
+{
+    if [[ $# -lt 2 ]]; then
+        echo 'usage: kopysecrets <source_context> <secret_name> [<secret_name>...]' >&2
+        return 1
+    fi
+    local source_ctx=$1; shift
+    k --context "${source_ctx}" -n "$(shortyk8s_kns)" get secrets "$@" y | k apply -f -
 }
 
 # TODO: add helper to get currently env deployment tag and open URL to compare to master:
@@ -1040,6 +1063,47 @@ function gvol()
         done
         wait
     )
+}
+
+function list_agent_urls()
+{
+    if [[ $# -ne 1 ]]; then
+        echo 'usage: list_agent_urls <version>' >&2
+        return 1
+    fi
+    local v=$1; shift
+    [[ "${v}" == v* ]] || v="v${v}"
+    local b="https://unity-accelerator-prd.storage.googleapis.com/unity-accelerator-${v}"
+    local os i a
+    for os in linux macos windows; do
+        a="${b}-${os}"
+        case "${os}" in
+            linux) i="${b}-linux-x64-installer.run";;
+            macos) i="${b}-osx-installer.dmg";;
+            windows) i="${b}-windows-x64-installer.exe"; a+='.exe';
+        esac
+        local u r
+        for u in "${i}" "${a}"; do
+            r=$(curl -sSIw '%{http_code}' "${u}" | awk '{print $2;exit}')
+            if [[ "${r}" != 200 ]]; then
+                echo "Check failed (${r}): ${u}" >&2
+                return 2
+            fi
+        done
+        cat <<EOF
+
+{
+    "properties": {
+        "InstallerDownloadURL": {
+            "stringValue": "${i}"
+        },
+        "AppDownloadURL": {
+            "stringValue": "${a}"
+        }
+    }
+}
+EOF
+    done
 }
 
 function healstats()
