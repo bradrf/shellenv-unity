@@ -14,6 +14,14 @@ if [ -n "$EC2_ROLE" ]; then
     [ -f "$SECRET_FILE" ] && . "$SECRET_FILE" || unset SECRET_FILE
 fi
 
+d=$(ls -d /Applications/BitRock\ InstallBuilder\ Professional\ */bin 2>/dev/null)
+if [ -d "$d" ]; then
+    if ! echo "$PATH" | grep -qE ":${d}(:|\$)"; then
+        export PATH="${PATH}:$d"
+    fi
+fi
+unset d
+
 # export HEKETI_CLI_SERVER='http://gluster-api.us-west-1.unityops.net:8080'
 export SPEED=1
 
@@ -23,13 +31,17 @@ if [[ -f "${HOME}/.ssh/id_github" ]]; then
 fi
 
 # ensure collab's bundler is used
-RVM_PIN_RUBY244GLOBAL+=(bundler:$(sed -n '/^BUNDLED WITH/{n;p;}' \
+RVM_PIN_RUBY263GLOBAL+=(bundler:$(sed -n '/^BUNDLED WITH/{n;p;}' \
                                       ~/work/unitycloud-collab-service/Gemfile.lock | \
                                       tr -d '[:space:]'))
 
 # must be in "root" not in @global for emacs to work
-RVM_PIN_DEFAULT+=(rubocop:$(awk '/^ *rubocop /{gsub(/[()]/,"",$2); print $2; exit}' \
-                                ~/work/unitycloud-collab-service/Gemfile.lock))
+RVM_PIN_DEFAULT+=(
+    rubocop:$(awk '/^ *rubocop /{gsub(/[()]/,"",$2); print $2; exit}' \
+                  ~/work/unitycloud-collab-service/Gemfile.lock)
+    rubocop-performance:$(awk '/^ *rubocop-performance /{gsub(/[()]/,"",$2); print $2; exit}' \
+                              ~/work/unitycloud-collab-service/Gemfile.lock)
+)
 
 # override default gcloud.sh behavior of searching all projects
 GPROJ_EACH_REGEX='^unity-cs-common-|^unity-cs-collab-|^unity-gke-'
@@ -192,6 +204,15 @@ if $DARWIN; then
             export enableCollabEventLogs=$logs
             tailrun -p "predate $ISO8601_FMT" "${HOME}/Library/Logs/Unity/Editor.log" "${args[@]}"
         )
+    }
+
+    function unity_find_all()
+    {
+        local skipdirs=(-ipath '*chrome*' -o -ipath '*safari*' -o -ipath '*steam*' \
+                               -o -ipath '*tunnelblick*')
+        ls -d /Applications | grep -i unity
+        find ~/Library \( "${skipdirs[@]}" \) -prune -o -iname '*unity*' -print
+        sudo find /Library \( "${skipdirs[@]}" \) -prune -o -iname '*unity*' -print
     }
 fi
 
@@ -558,28 +579,28 @@ function statsd_report()
     echo "$msg" | nc -uw0 "$host" 8125
 }
 
-function beanstool()
-{
-    local beanbin="${HOME}/bin/beanstool"
-    if [ -f /etc/default/beanstalkd ]; then
-        .  /etc/default/beanstalkd
-    else
-        BEANSTALKD_LISTEN_ADDR="$(get_iface_ip inet eth0)"
-        BEANSTALKD_LISTEN_PORT='11300'
-    fi
-    if [ ! -x "$beanbin" ]; then
-        (
-            set -e
-            cd "${HOME}/bin"
-            ver='0.2.0'
-            fn="beanstool_v${ver}_$(downcase "$UNAME")_amd64"
-            wget "https://github.com/src-d/beanstool/releases/download/v${ver}/${fn}.tar.gz"
-            tar zxf "${fn}.tar.gz" --strip-components=1 "${fn}/beanstool"
-            rm -f "${fn}.tar.gz"
-        )
-    fi
-    "$beanbin" "$@" --host="${BEANSTALKD_LISTEN_ADDR}:${BEANSTALKD_LISTEN_PORT}"
-}
+# function beanstool()
+# {
+#     local beanbin="${HOME}/bin/beanstool"
+#     if [ -f /etc/default/beanstalkd ]; then
+#         .  /etc/default/beanstalkd
+#     else
+#         BEANSTALKD_LISTEN_ADDR="$(get_iface_ip inet eth0)"
+#         BEANSTALKD_LISTEN_PORT='11300'
+#     fi
+#     if [ ! -x "$beanbin" ]; then
+#         (
+#             set -e
+#             cd "${HOME}/bin"
+#             ver='0.2.0'
+#             fn="beanstool_v${ver}_$(downcase "$UNAME")_amd64"
+#             wget "https://github.com/src-d/beanstool/releases/download/v${ver}/${fn}.tar.gz"
+#             tar zxf "${fn}.tar.gz" --strip-components=1 "${fn}/beanstool"
+#             rm -f "${fn}.tar.gz"
+#         )
+#     fi
+#     "$beanbin" "$@" --host="${BEANSTALKD_LISTEN_ADDR}:${BEANSTALKD_LISTEN_PORT}"
+# }
 
 function instances_needed()
 {

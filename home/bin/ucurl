@@ -41,7 +41,7 @@ if [[ $# -lt 3 ]]; then
     cat <<EOF >&2
 
 usage: ${BN} [<options>] <cloud_env> <method> <url> [<body> | <file>]
-       ${BN} [<options>] <cloud_env> get { me | auth }
+       ${BN} [<options>] <cloud_env> get { config | me | auth }
 
   ${BN} (v${VERSION}) is a tool to automatically handle authentication and URL selection when
         working with Unity HTTP APIs (while keeping dependencies at a minimum, requiring only bash,
@@ -70,6 +70,7 @@ usage: ${BN} [<options>] <cloud_env> <method> <url> [<body> | <file>]
     ABBREV:
       config     dump the set of key/values available in CLOUD ENV
       me         show info about current user for CLOUD ENV
+      auth       provide a full "Authorization" header
 
   BODY:        provide the value sent using curl's data-binary option (assumes JSON format)
   FILE:        provide a filename to read and send using curl's data-binary option (detects content type)
@@ -135,9 +136,9 @@ fi
 
 case "$1" in
     local) CLOUD_ENV=local;;
-    dev) CLOUD_ENV=dev;;
-    stag*) CLOUD_ENV=staging;;
-    prod*) CLOUD_ENV=production;;
+    test|dev) CLOUD_ENV=dev;;
+    stg|stag*) CLOUD_ENV=staging;;
+    prd|prod*) CLOUD_ENV=production;;
     *)
         echo "Unknown environment: $1" >&2
         exit 3
@@ -226,9 +227,9 @@ function simple_curl() {
     [[ -n "$body" ]] && cargs+=(--data-binary "$body")
     [[ $BODY_SIZE -lt 10485760 ]] && cargs+=(-s) # keep silent for small uploads
 
-    if [[ $VERBOSITY -eq 1 ]]; then
+    if [[ $VERBOSITY -lt 2 ]]; then
         # redact under "normal" verbosity, otherwise, show it
-        curl "${cargs[@]}" "$url" 2> >(sed 's/Bearer .*$/Bearer [REDACTED]/' >&2)
+        curl "${cargs[@]}" "$url" 2> >(sed 's/Authorization:.*$/Authorization: [REDACTED]/' >&2)
     else
         curl "${cargs[@]}" "$url"
     fi

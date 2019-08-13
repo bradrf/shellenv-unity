@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+
+import argparse
+import logging
+import http.client
+import signal
+import sys
+
+from datetime import datetime
+from html.parser import HTMLParser
+
+
+_logger = logging.getLogger(__name__)
+
+
+def exit_on_interrupt(*args):
+    print
+    exit(1)
+
+
+def request(conn, method, path, body=None, headers={}, expect={}):
+    msg = '%s https://%s/%s' % (method, conn.host, path)
+    conn.request(method, path, body, headers)
+    resp = conn.getresponse()
+    resp_t = (msg, resp.status, resp.reason)
+    if resp.status not in expect:
+        _logger.error('Unable to %s : %s (%s)' % resp_t)
+        exit(2)
+    _logger.debug('%s => %s (%s)' % resp_t)
+    return resp
+
+
+class DirHTMLParser(HTMLParser):
+    def __init__(self):
+        HTMLParser.__init__(self)
+        self.entries = []
+        self._current_entry = None
+
+    def handle_starttag(self, tag, attrs):
+        if self._current_entry != None:
+            _logger.debug('Ignored tag: %s (for %s with %s)', self._current_entry, tag, attrs)
+        self._current_entry = None
+        if tag != 'a':
+            return
+        for attr in attrs:
+            if attr[0] == 'href':
+                self._current_entry = attr[1].strip(" \t\r\n/")
+                return
+
+    def handle_data(self, data):
+        if not self._current_entry:
+            _logger.debug('Ignored data: %s', data)
+            return
+        words = data.split()
+        try:
+            dt = datetime.strptime(' '.join(words[0:2]), '%d-%b-%Y %H:%M')
+        except ValueError:
+            _logger.debug('Ignored data (not datetime): %s', data)
+            return
+        entry = (self._current_entry, dt)
+        self.entries.append(entry)
+        self._current_entry = None
+
+
+parser = argparse.ArgumentParser(
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    description='Delete old image tags',
+)
+parser.add_argument('--debug', action='store_true', help='Enable extra debugging logs')
+parser.add_argument('--host', default='artifactory.eu-cph-1.unityops.net', help='Artifactory host')
+parser.add_argument('--tag-prefix', default='',
+                    help='Only remove images with tags matching this prefix')
+parser.add_argument('--not-tag-prefix',
+                    help='Only remove images with tags that do NOT match this prefix '\
+                         '(applied after matching the --tag-prefix)')
+parser.add_argument('image_path', help='<Docker v2 repository name>/<image namespace>')
+parser.add_argument('days', type=int, help='Delete images older than DAYS')
+parser.add_argument('action', nargs='?', default='dryrun',
+                    help='Specify DELETE (all caps) when ready to remove entries')
+args = parser.parse_args()
+
+logging.basicConfig(
+    level=(logging.DEBUG if args.debug else logging.INFO),
+    format='[%(asctime)s] %(levelname)-8s %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%S%z'
+)
+
+signal.signal(signal.SIGINT, exit_on_interrupt)
+
+conn = http.client.HTTPSConnection(args.host)
+if args.debug:
+    conn.set_debuglevel(4)
+
+resp = request(conn, 'GET', '/list/' + args.image_path + '/', expect={200})
+body = resp.read()
+
+dir_html_parser = DirHTMLParser()
+dir_html_parser.feed(body.decode('utf-8'))
+
+now = datetime.utcnow()
+for (tag, date) in dir_html_parser.entries:
+    if (tag.startswith(args.tag_prefix) and
+        (args.not_tag_prefix is None or not tag.startswith(args.not_tag_prefix))):
+        diff = now - date
+        if diff.days > args.days:
+            path = '/%s/%s' % (args.image_path, tag)
+            if args.action == 'DELETE':
+                _logger.info('Removing: %s [%s]', path, date)
+                request(conn, 'DELETE', path, expect={204}).read()
+            else:
+                _logger.info('DRYRUN: delete %s [%s]', path, date)
+        else:
+            _logger.debug('Ignoring newer entry: %s %s', tag, date)
+    else:
+        _logger.debug('Ignoring entry without matching prefix: %s %s', tag, date)
