@@ -52,6 +52,7 @@ GSSH_FILTER_UNITYGKESTG='-sst-'
 GSSH_FILTER_UNITYGKETEST='-sst-'
 
 alias lpass_unity='lpass show --password id.unity.com'
+alias lpass_okta='lpass show --password okta.com'
 
 alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database unity_cloud_collab"; rake db:create db:migrate'
 alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
@@ -80,7 +81,7 @@ fi
 # shitty hack to undo the default route added by global-protect vpn
 function route_fix()
 {
-    local gpgw origgw addr
+    local gpgw origgw addr cenv
 
     gpgw=$(\netstat -nr | awk '/^default/ && $6 ~ /^gpd/ { print $2; exit }')
     if [[ -z "$gpgw" ]]; then
@@ -97,8 +98,15 @@ function route_fix()
         sudo route add -net "$addr" "$gpgw"
     done
 
-    for addr in 35.194.3.255 35.193.53.20 35.226.249.132 104.154.106.28 35.188.55.178 104.155.15.185 35.190.29.78; do
+    for addr in 130.211.40.43 34.77.59.125 35.194.3.255 35.193.53.20 35.226.249.132 104.154.106.28 35.188.55.178 104.155.15.185 35.190.29.78; do
         sudo route add -host "$addr" "$gpgw"
+    done
+
+    # add all the common k8s endpoints
+    for cenv in prd stg test; do
+        for addr in $(gcloud --project unity-cs-common-${cenv} container clusters list --format 'value(endpoint)'); do
+            sudo route add -host "$addr" "$gpgw"
+        done
     done
 }
 
@@ -1124,6 +1132,31 @@ function list_agent_urls()
     }
 }
 EOF
+    done
+}
+
+function promote_production_agents()
+{
+    if [[ $# -ne 1 ]]; then
+        echo 'usage: promote_production_agents <version>' >&2
+        return 1
+    fi
+    local v=$1; shift
+    [[ "${v}" == v* ]] || v="v${v}"
+    local b="gs://unity-accelerator-prd/unity-accelerator-${v}"
+    local os i t
+    for os in linux macos windows; do
+        case "${os}" in
+            linux) i="${b}-linux-x64-installer.run";;
+            macos) i="${b}-osx-installer.dmg";;
+            windows) i="${b}-windows-x64-installer.exe"; a+='.exe';
+        esac
+        if ! gsutil stat "${i}" >/dev/null; then
+            echo "Check failed: ${i}" >&2
+            return 2
+        fi
+        t=$(sed -e "s/-${v}//" -e 's/-x64//' <<<"${i}")
+        gsutil cp "${i}" "${t}"
     done
 }
 
