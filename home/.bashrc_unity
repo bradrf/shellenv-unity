@@ -81,26 +81,32 @@ fi
 # shitty hack to undo the default route added by global-protect vpn
 function route_fix()
 {
-    local gpgw origgw addr cenv
+    local gpgw origgw addr cenv all=true
 
     gpgw=$(\netstat -nr | awk '/^default/ && $6 ~ /^gpd/ { print $2; exit }')
     if [[ -z "$gpgw" ]]; then
-        echo 'No tunnel gateway found using a "gpd" interface' >&2
-        return 1
+        gpgw=$(ifconfig | awk '/^gpd/{f=1} f && /inet/{print $2}')
+        if [[ -z "$gpgw" ]]; then
+            echo 'No tunnel gateway found using a "gpd" interface' >&2
+            return 1
+        fi
+        all=false
     fi
 
-    sudo route delete default "$gpgw"
+    if $all; then
+        sudo route delete default "$gpgw"
 
-    origgw=$(\netstat -nr | awk '/^default/ { print $2; exit }')
-    sudo route add default "$origgw"
+        origgw=$(\netstat -nr | awk '/^default/ { print $2; exit }')
+        sudo route add default "$origgw"
 
-    for addr in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do
-        sudo route add -net "$addr" "$gpgw"
-    done
+        for addr in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do
+            sudo route add -net "$addr" "$gpgw"
+        done
 
-    for addr in 130.211.40.43 34.77.59.125 35.194.3.255 35.193.53.20 35.226.249.132 104.154.106.28 35.188.55.178 104.155.15.185 35.190.29.78; do
-        sudo route add -host "$addr" "$gpgw"
-    done
+        for addr in 130.211.40.43 34.77.59.125 35.194.3.255 35.193.53.20 35.226.249.132 104.154.106.28 35.188.55.178 104.155.15.185 35.190.29.78; do
+            sudo route add -host "$addr" "$gpgw"
+        done
+    fi
 
     # add all the common k8s endpoints
     for cenv in prd stg test; do
