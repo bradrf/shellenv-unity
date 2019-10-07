@@ -36,12 +36,11 @@ RVM_PIN_RUBY263GLOBAL+=(bundler:$(sed -n '/^BUNDLED WITH/{n;p;}' \
                                       tr -d '[:space:]'))
 
 # must be in "root" not in @global for emacs to work
-RVM_PIN_DEFAULT+=(
-    rubocop:$(awk '/^ *rubocop /{gsub(/[()]/,"",$2); print $2; exit}' \
-                  ~/work/unitycloud-collab-service/Gemfile.lock)
-    rubocop-performance:$(awk '/^ *rubocop-performance /{gsub(/[()]/,"",$2); print $2; exit}' \
-                              ~/work/unitycloud-collab-service/Gemfile.lock)
-)
+for rc in rubocop rubocop-performance; do
+    v=$(awk '/^ *'"${rc}"' /{gsub(/[()]/,"",$2); print $2; exit}' \
+            ~/work/unitycloud-collab-service/Gemfile.lock)
+    [[ -n "$v" ]] && RVM_PIN_DEFAULT+=("${rc}:${v}")
+done
 
 # override default gcloud.sh behavior of searching all projects
 GPROJ_EACH_REGEX='^unity-cs-common-|^unity-cs-collab-|^unity-gke-'
@@ -1127,18 +1126,12 @@ function list_agent_urls()
         done
         cat <<EOF
 
-{
-    "properties": {
-        "InstallerDownloadURL": {
-            "stringValue": "${i}"
-        },
-        "AppDownloadURL": {
-            "stringValue": "${a}"
-        }
-    }
-}
+${os}
+        app: ${a}
+  installer: ${i}
 EOF
     done
+    echo
 }
 
 function promote_production_agents()
