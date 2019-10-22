@@ -1,5 +1,7 @@
 # NOTE: using "stuff" instead of "chdir" to ensure rvm loads gemsets properly
 
+shell /usr/local/bin/bash
+
 screen -t collab
 stuff "cd /opt/unity/unitycloud-collab-service"
 
