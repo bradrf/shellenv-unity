@@ -984,8 +984,8 @@ function gsetbsn()
         # k ing  '-ojsonpath={.items[*].metadata.annotations.ingress\.kubernetes\.io/backends}'
         jpn=".items[*]${jpn}"
     fi
-    GBSN=$(k ing "$@" -o"jsonpath={${jpn}}" | cut -d\" -f2)
-    if [[ -z "$GBSN" ]]; then
+    GBSN=($(k ing "$@" -o"jsonpath={${jpn}}" | awk -F\" '{print $2; print $6; print $10}'))
+    if [[ ${#GBSN[@]} -lt 1 ]]; then
         echo 'Unknown ingress name' >&2
         return 1
     fi
@@ -1014,22 +1014,14 @@ function gsetproj()
 {
     local s='
 BEGIN {
-  a["prd-ape1"] = "unity-gke-prd"
-  a["prd-euw1"] = "unity-gke-prd"
-  a["prd-usc1"] = "unity-gke-prd"
-  a["stg-ape1"] = "unity-gke-stg"
-  a["stg-euw1"] = "unity-gke-stg"
-  a["stg-usc1"] = "unity-gke-stg"
-  a["test-euw1"] = "unity-gke-test"
-  a["test-usc1"] = "unity-gke-test"
-  a["pcmn-ape1"] = "unity-cs-common-prd"
-  a["pcmn-euw1"] = "unity-cs-common-prd"
-  a["pcmn-usc1"] = "unity-cs-common-prd"
-  a["scmn-ape1"] = "unity-cs-common-stg"
-  a["scmn-euw1"] = "unity-cs-common-stg"
-  a["scmn-usc1"] = "unity-cs-common-stg"
-  a["tcmn-usc1"] = "unity-cs-common-test"
-  a["tcmn-euw1"] = "unity-cs-common-test"
+  a["prd-ape1"]  = "unity-cs-common-prd"
+  a["prd-euw1"]  = "unity-cs-common-prd"
+  a["prd-usc1"]  = "unity-cs-common-prd"
+  a["stg-ape1"]  = "unity-cs-common-stg"
+  a["stg-euw1"]  = "unity-cs-common-stg"
+  a["stg-usc1"]  = "unity-cs-common-stg"
+  a["test-euw1"] = "unity-cs-common-test"
+  a["test-usc1"] = "unity-cs-common-test"
 }
 END { print a[v] }
 '
@@ -1059,8 +1051,10 @@ function gnegs()
     gsetbsn "$@" || return
     (
         for zone in $(gkloud compute zones list --filter "region=${GREGION}" --format 'value(selfLink.scope())'); do
-            ( gkloud beta compute network-endpoint-groups list-network-endpoints \
-                     --zone "$zone" "$GBSN" 2>&1 | prefix "${zone}: " ) &
+            for n in "${GBSN[@]}"; do
+                ( gkloud beta compute network-endpoint-groups list-network-endpoints \
+                         --zone "$zone" "$n" 2>&1 | prefix "${zone}: " ) &
+            done
         done
         wait
     )
@@ -1069,7 +1063,10 @@ function gnegs()
 function gbs()
 {
     gsetbsn "$@" || return
-    gkloud beta compute backend-services describe "$GBSN" --global
+    local n
+    for n in "${GBSN[@]}"; do
+        gkloud beta compute backend-services describe "$n" --global
+    done
 }
 
 function ghealth()
@@ -1077,8 +1074,11 @@ function ghealth()
     gsetbsn "$@" || return
     k ing w
     k d ep | grep -E '^Name:|^ *Addresses' | cat
-    gkloud beta compute backend-services get-health "$GBSN" --global | \
-        match -g \ HEALTHY -b UNHEALTHY
+    local n
+    for n in "${GBSN[@]}"; do
+        gkloud beta compute backend-services get-health "$n" --global | \
+            match -g \ HEALTHY -b UNHEALTHY
+    done
 }
 
 function gvol()
