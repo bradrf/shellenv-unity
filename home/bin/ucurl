@@ -61,7 +61,7 @@ usage: ${BN} [<options>] <cloud_env> <method> <url> [<body> | <file>]
     -eval          write JSON response as evaluable shell key/value pairs (does not work w/ -pretty)
     -save <file>   write response to <file>
 
-  CLOUD ENV:   local | dev | stag[ing] | prod[uction]
+  CLOUD ENV:   local | test | dev | stg | stag[ing] | prd | prod[uction]
 
   METHOD:      get | post | put | del[ete]
 
