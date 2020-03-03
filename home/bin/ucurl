@@ -236,7 +236,7 @@ function simple_curl() {
     local res=$?
 
     # look for _FINAL_ HTTP status line and get a clean response code and location header
-    eval "$(awk '/^HTTP/{c=$2};/^Location:/{l=$2};END{sub("\r","",c);sub("\r","",$2);print "CODE="c";LOCATION=\""$2"\""};' "$hfn")"
+    eval "$(awk '/^HTTP/{c=$2};tolower($1)~/^location:/{l=$2};END{sub("\r","",c);sub("\r","",l);print "CODE="c";LOCATION=\""l"\""};' "$hfn")"
     rm -f "$hfn"
 
     if [[ -z "$save" ]]; then

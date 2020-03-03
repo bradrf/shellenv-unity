@@ -14,7 +14,7 @@ if [ -n "$EC2_ROLE" ]; then
     [ -f "$SECRET_FILE" ] && . "$SECRET_FILE" || unset SECRET_FILE
 fi
 
-d=$(ls -d /Applications/BitRock\ InstallBuilder\ Professional\ */bin 2>/dev/null)
+d='/Applications/installbuilder/bin'
 if [ -d "$d" ]; then
     if ! echo "$PATH" | grep -qE ":${d}(:|\$)"; then
         export PATH="${PATH}:$d"
