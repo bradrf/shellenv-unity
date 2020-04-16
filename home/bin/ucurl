@@ -259,7 +259,7 @@ EOF
 function response_to_key_values() {
     echo "$RESPONSE" | \
         python -c 'import sys,json,re; \
-print(";".join("%s=\"%s\"" % (re.sub(r"[\W_]+","_",k.upper()),v) for (k,v) in json.load(sys.stdin).items()))'
+print(";".join("%s=\"%s\"" % (re.sub(r"[\W_-]+","_",k.upper()),v) for (k,v) in json.load(sys.stdin).items()))'
 }
 
 function eval_response() {
