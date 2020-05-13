@@ -108,7 +108,7 @@ function route_fix()
     fi
 
     # missing internal dev resources
-    for addr in athens.prd.cds.internal.unity3d.com id-staging.unity.com id-int.unity.com api-staging.unity.com  api-int.unity.com; do
+    for addr in 34.70.186.202 staging.dashboard.unity3d.com; do
         sudo route add -host "$addr" "$gpgw"
     done
 
