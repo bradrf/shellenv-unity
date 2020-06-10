@@ -43,7 +43,7 @@ for rc in rubocop rubocop-performance; do
 done
 
 # override default gcloud.sh behavior of searching all projects
-GPROJ_EACH_REGEX='^unity-cs-common-|^unity-cs-collab-|^unity-gke-'
+GPROJ_EACH_REGEX='^unity-cs-common-|^unity-cs-collab-'
 
 # provide a filter for shared cluster listing when building ssh config
 GSSH_FILTER_UNITYGKEPRD='-sst-'
@@ -82,6 +82,8 @@ function route_fix()
 {
     local gpgw origgw addr cenv all=true
 
+    # first, check to see if we are _NOT_ using the split-tunnel endpoint, if
+    # so, we'll delete it and add our own routes
     gpgw=$(\netstat -nr | awk '/^default/ && $6 ~ /^gpd/ { print $2; exit }')
     if [[ -z "$gpgw" ]]; then
         gpgw=$(ifconfig | awk '/^gpd/{f=1} f && /inet/{print $2}')
@@ -90,6 +92,14 @@ function route_fix()
             return 1
         fi
         all=false
+    fi
+
+    if [[ $# -gt 0 ]]; then
+        # user wants to only add one or more new routes...
+        for addr in "$@"; do
+            sudo route add "$addr" "$gpgw"
+        done
+        return
     fi
 
     if $all; then
@@ -108,7 +118,7 @@ function route_fix()
     fi
 
     # missing internal dev resources
-    for addr in 34.70.186.202 staging.dashboard.unity3d.com; do
+    for addr in 34.70.170.138 34.70.186.202 staging.dashboard.unity3d.com staging-core.cloud.unity3d.com stackrox.security.corp.unity3d.com; do
         sudo route add -host "$addr" "$gpgw"
     done
 
@@ -117,6 +127,11 @@ function route_fix()
         for addr in $(gcloud --project unity-cs-common-${cenv} container clusters list --format 'value(endpoint)'); do
             sudo route add -host "$addr" "$gpgw"
         done
+    done
+
+    # add cloudbuild k8s endpoints
+    for addr in $(gcloud --project unity-cs-cloudbuild-test container clusters list --format 'value(endpoint)'); do
+        sudo route add -host "$addr" "$gpgw"
     done
 }
 
