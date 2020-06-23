@@ -1,0 +1,9 @@
+[user]
+        name = bradrf
+        email = brad@unity3d.com
+[url "git@gitlab.internal.unity3d.com:"]
+	insteadOf = https://gitlab.internal.unity3d.com/
+[url "git@gitlab.cds.internal.unity3d.com:"]
+	insteadOf = https://gitlab.cds.internal.unity3d.com/
+[url "ssh://git@github.com/"]
+	insteadOf = https://github.com/

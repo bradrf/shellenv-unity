@@ -118,7 +118,7 @@ function route_fix()
     fi
 
     # missing internal dev resources
-    for addr in 34.70.170.138 34.70.186.202 staging.dashboard.unity3d.com staging-core.cloud.unity3d.com stackrox.security.corp.unity3d.com; do
+    for addr in 34.70.170.138 34.70.186.202 staging.dashboard.unity3d.com staging-core.cloud.unity3d.com; do
         sudo route add -host "$addr" "$gpgw"
     done
 
