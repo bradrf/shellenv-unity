@@ -32,13 +32,13 @@ fi
 
 # ensure collab's bundler is used
 RVM_PIN_RUBY263GLOBAL+=(bundler:$(sed -n '/^BUNDLED WITH/{n;p;}' \
-                                      ~/work/unitycloud-collab-service/Gemfile.lock | \
+                                      ~/work/collab/collab-service/Gemfile.lock | \
                                       tr -d '[:space:]'))
 
 # must be in "root" not in @global for emacs to work
 for rc in rubocop rubocop-performance; do
     v=$(awk '/^ *'"${rc}"' /{gsub(/[()]/,"",$2); print $2; exit}' \
-            ~/work/unitycloud-collab-service/Gemfile.lock)
+            ~/work/collab/collab-service/Gemfile.lock)
     [[ -n "$v" ]] && RVM_PIN_DEFAULT+=("${rc}:${v}")
 done
 
@@ -54,7 +54,7 @@ alias lpass_unity='lpass show --password id.unity.com'
 alias lpass_okta='lpass show --password okta.com'
 
 alias reset_dev='rm -rfv devrepos/* db/*.sqlite3; mysql -uroot -e "drop database unity_cloud_collab"; rake db:create db:migrate'
-alias mcls='ruby -I /opt/unity/unity-collab-service/current/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
+alias mcls='ruby -I ~/work/collab/collab-service/vendor/bundle/ruby/2.3.0/gems/dalli-2.7.6/lib ~/bin/memcache_list_keys'
 alias list_editor_args='find Editor/Src -type f -name "*.cpp" -print0 | xargs -0 grep -F HasARGV'
 alias gitsum='git ls-files -z | xargs -0 grep -F size | pipesum 10000 2'
 
@@ -118,7 +118,7 @@ function route_fix()
     fi
 
     # missing internal dev resources
-    for addr in 34.70.170.138 34.70.186.202 staging.dashboard.unity3d.com staging-core.cloud.unity3d.com; do
+    for addr in 34.70.170.138 34.70.186.202 staging.dashboard.unity3d.com staging-core.cloud.unity3d.com athens.prd.cds.internal.unity3d.com; do
         sudo route add -host "$addr" "$gpgw"
     done
 
