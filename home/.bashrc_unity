@@ -84,11 +84,11 @@ function route_fix()
 
     # first, check to see if we are _NOT_ using the split-tunnel endpoint, if
     # so, we'll delete it and add our own routes
-    gpgw=$(\netstat -nr | awk '/^default/ && $6 ~ /^gpd/ { print $2; exit }')
+    gpgw=$(\netstat -nr | awk '/^default/ && $6 ~ /^utun2|gpd/ { print $2; exit }')
     if [[ -z "$gpgw" ]]; then
-        gpgw=$(ifconfig | awk '/^gpd/{f=1} f && /inet/{print $2}')
+        gpgw=$(ifconfig | awk '/^utun2|gpd/{f=1} f && /inet/{print $2}')
         if [[ -z "$gpgw" ]]; then
-            echo 'No tunnel gateway found using a "gpd" interface' >&2
+            echo 'No tunnel gateway found using a "utun2" or "gpd" interface' >&2
             return 1
         fi
         all=false
@@ -118,13 +118,16 @@ function route_fix()
     fi
 
     # missing internal dev resources
-    for addr in 34.70.170.138 34.70.186.202 staging.dashboard.unity3d.com staging-core.cloud.unity3d.com athens.prd.cds.internal.unity3d.com; do
+    for addr in 208.83.0.12 207.254.17.33 34.70.170.138 34.70.186.202 staging.dashboard.unity3d.com staging-core.cloud.unity3d.com iad1-mongos0.objectrocket.com packages-v2-staging.unity.com go.mgmt.services.corp.unity3d.com stackrox.security.corp.unity3d.com; do
         sudo route add -host "$addr" "$gpgw"
     done
 
     # add all the common k8s endpoints
     for cenv in prd stg test; do
         for addr in $(gcloud --project unity-cs-common-${cenv} container clusters list --format 'value(endpoint)'); do
+            sudo route add -host "$addr" "$gpgw"
+        done
+        for addr in $(gcloud --project unity-cs-cloudbuild-${cenv} container clusters list --format 'value(endpoint)'); do
             sudo route add -host "$addr" "$gpgw"
         done
     done
